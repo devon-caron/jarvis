@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/devon-caron/jarvis/config"
 )
 
 var configCmd = &cobra.Command{
@@ -35,9 +38,27 @@ var completionCmd = &cobra.Command{
 	},
 }
 
+var initConfigCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Create a default config file",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
+		path, err := config.WriteDefault()
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("config file already exists: %s", path)
+			}
+			return fmt.Errorf("failed to write config: %w", err)
+		}
+		fmt.Printf("Config file created: %s\n", path)
+		return nil
+	},
+}
+
 func init() {
 	completionCmd.Flags().StringVar(&completionShell, "shell", "bash", "Shell type (bash, zsh, fish, powershell)")
 	configCmd.AddCommand(completionCmd)
+	configCmd.AddCommand(initConfigCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }

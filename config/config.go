@@ -96,6 +96,30 @@ func LoadFrom(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// WriteDefault writes a default config file to the standard config path.
+// Returns an error if the file already exists.
+func WriteDefault() (string, error) {
+	path := internal.ConfigPath()
+	if _, err := os.Stat(path); err == nil {
+		return path, os.ErrExist
+	}
+
+	if err := os.MkdirAll(internal.ConfigDir(), 0755); err != nil {
+		return "", err
+	}
+
+	cfg := Defaults()
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // ResolveModel resolves a model path or alias to an absolute path.
 // If the input matches a configured alias, it returns the alias's path.
 // Otherwise it returns the input as-is (assumed to be a path).
