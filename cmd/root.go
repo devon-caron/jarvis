@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/client"
-	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
 )
 
@@ -48,7 +47,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 	prompt := args[0]
 
-	cfg, _ := config.Load()
+	// cfg, _ := config.Load()
 
 	c, err := client.Connect()
 	if err != nil {
@@ -76,7 +75,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		},
 	}
 
-	_ = cfg // config loaded for potential future use
+	// _ = cfg // config loaded for potential future use
 
 	if batchMode {
 		var buf strings.Builder
