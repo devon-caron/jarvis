@@ -16,6 +16,7 @@ var (
 	batchMode    bool
 	systemPrompt string
 	maxTokens    int
+	contextSize  int
 	temperature  float64
 )
 
@@ -33,6 +34,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
 	rootCmd.Flags().StringVarP(&systemPrompt, "system", "s", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
+	rootCmd.Flags().IntVarP(&contextSize, "context-size", "c", 8192, "Context window size in tokens (default 8192)")
 	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
 }
 
@@ -55,7 +57,9 @@ func runChat(cmd *cobra.Command, args []string) error {
 	}
 	defer c.Close()
 
-	opts := protocol.InferenceOpts{}
+	opts := protocol.InferenceOpts{
+		ContextSize: contextSize,
+	}
 	if maxTokens > 0 {
 		opts.MaxTokens = maxTokens
 	}
