@@ -24,6 +24,7 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	pidPath := internal.PIDPath()
 
 	// Check if already running

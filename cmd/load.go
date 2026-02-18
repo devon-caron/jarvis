@@ -24,6 +24,7 @@ func init() {
 }
 
 func runLoad(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	modelPath := args[0]
 
 	c, err := client.Connect()

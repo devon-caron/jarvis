@@ -44,6 +44,7 @@ func Execute() {
 }
 
 func runChat(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	prompt := args[0]
 
 	cfg, _ := config.Load()

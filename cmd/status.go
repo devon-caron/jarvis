@@ -20,6 +20,7 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	c, err := client.Connect()
 	if err != nil {
 		return fmt.Errorf("daemon is not running")
