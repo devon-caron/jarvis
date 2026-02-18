@@ -21,11 +21,12 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "jarvis [prompt]",
-	Short: "Local LLM CLI with daemon-based model management",
-	Long:  `Jarvis is a CLI tool that keeps LLM models loaded in VRAM via a background daemon, enabling fast multi-turn chat with direct memory control.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runChat,
+	Use:               "jarvis [prompt]",
+	Short:             "Local LLM CLI with daemon-based model management",
+	Long:              `Jarvis is a CLI tool that keeps LLM models loaded in VRAM via a background daemon, enabling fast multi-turn chat with direct memory control.`,
+	Args:              cobra.ExactArgs(1),
+	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+	RunE:              runChat,
 }
 
 func init() {
