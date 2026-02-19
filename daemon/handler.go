@@ -99,6 +99,11 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 				searchCtx := search.FormatResults(results)
 				// Insert search context as system message before user messages
 				msgs = append([]protocol.ChatMessage{{Role: "system", Content: searchCtx}}, msgs...)
+			} else if err == nil && len(results) == 0 {
+				rw.Write(protocol.ErrorResponse("zero results from search"))
+				return
+			} else if err != nil {
+				rw.Write(protocol.ErrorResponse(fmt.Sprintf("unexpected error encountered: %v", err)))
 			}
 		}
 	}

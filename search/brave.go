@@ -45,7 +45,6 @@ func (b *BraveSearcher) Search(ctx context.Context, query string) ([]Result, err
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("X-Subscription-Token", b.apiKey)
 
 	resp, err := b.client.Do(req)
