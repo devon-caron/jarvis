@@ -13,4 +13,4 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 )
 
-replace github.com/tcpipuk/llama-go => /home/devonc/Repos/llama-go
+replace github.com/tcpipuk/llama-go => /home/devonc/Repos/llama-go-jarvis

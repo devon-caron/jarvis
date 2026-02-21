@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
@@ -21,13 +23,40 @@ func NewLlamaBackend(cfg *config.Config) *LlamaBackend {
 	return &LlamaBackend{cfg: cfg}
 }
 
-func (e *LlamaBackend) LoadModel(path string, gpuLayers int) error {
+// buildTensorSplit returns a comma-separated weight string for llama.cpp's
+// tensor_split parameter. GPUs in the specified list get weight 1; all others
+// get 0. Returns "" if totalGPUs is 0 or gpus is empty.
+func buildTensorSplit(gpus []int, totalGPUs int) string {
+	if totalGPUs == 0 || len(gpus) == 0 {
+		return ""
+	}
+	gpuSet := make(map[int]bool, len(gpus))
+	for _, g := range gpus {
+		gpuSet[g] = true
+	}
+	parts := make([]string, totalGPUs)
+	for i := range parts {
+		if gpuSet[i] {
+			parts[i] = "1"
+		} else {
+			parts[i] = "0"
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func (e *LlamaBackend) LoadModel(path string, gpus []int) error {
 	opts := []llama.ModelOption{
-		llama.WithGPULayers(gpuLayers),
+		llama.WithGPULayers(-1),
 	}
-	if e.cfg.ModelOptions.TensorSplit != "" {
-		opts = append(opts, llama.WithTensorSplit(e.cfg.ModelOptions.TensorSplit))
+
+	if len(gpus) > 0 {
+		opts = append(opts, llama.WithMainGPU(strconv.Itoa(gpus[0])))
+		if split := buildTensorSplit(gpus, llama.GPUCount()); split != "" {
+			opts = append(opts, llama.WithTensorSplit(split))
+		}
 	}
+
 	if e.cfg.ModelOptions.MLock {
 		opts = append(opts, llama.WithMLock())
 	}

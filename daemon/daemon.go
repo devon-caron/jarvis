@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/internal"
@@ -44,10 +45,12 @@ func Run() error {
 
 	log.Printf("jarvis daemon starting (pid=%d)", os.Getpid())
 
-	// Create model manager with real llama backend
-	backend := NewLlamaBackend(cfg)
-	manager := NewModelManager(backend)
-	defer manager.Shutdown()
+	// Create model registry with factory for llama backends
+	newBackend := func(c *config.Config) ModelBackend {
+		return NewLlamaBackend(c)
+	}
+	registry := NewModelRegistry(cfg, newBackend)
+	defer registry.Shutdown()
 
 	// Set up search
 	var searcher search.Searcher
@@ -57,7 +60,7 @@ func Run() error {
 
 	// Create handler and server
 	stopCh := make(chan struct{}, 1)
-	handler := NewHandler(manager, cfg, searcher, stopCh)
+	handler := NewHandler(registry, cfg, searcher, stopCh)
 	server := NewServer(internal.SocketPath(), handler)
 
 	if err := server.Listen(); err != nil {
@@ -70,8 +73,13 @@ func Run() error {
 	// Auto-load default model if configured
 	if cfg.DefaultModel != "" {
 		modelPath := cfg.ResolveModel(cfg.DefaultModel)
+		gpus := []int{cfg.DefaultGPU}
+		var timeout time.Duration
+		if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
+			timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
+		}
 		log.Printf("auto-loading default model: %s", modelPath)
-		if err := manager.Load(modelPath, cfg.ModelOptions.GPULayers); err != nil {
+		if err := registry.Load(cfg.DefaultModel, modelPath, gpus, timeout); err != nil {
 			log.Printf("warning: failed to auto-load model: %v", err)
 		} else {
 			log.Printf("default model loaded successfully")
@@ -102,7 +110,7 @@ func Run() error {
 	}
 
 	server.Close()
-	manager.Shutdown()
+	registry.Shutdown()
 	log.Printf("daemon stopped")
 	return nil
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -10,12 +11,14 @@ import (
 
 // Config holds all jarvis configuration.
 type Config struct {
-	DefaultModel string            `yaml:"default_model"`
-	Models       map[string]string `yaml:"models"`
-	ModelOptions ModelOptions      `yaml:"model_options"`
-	Inference    InferenceConfig   `yaml:"inference"`
-	SystemPrompt string            `yaml:"system_prompt"`
-	Search       SearchConfig      `yaml:"search"`
+	DefaultModel   string            `yaml:"default_model"`
+	DefaultTimeout string            `yaml:"default_timeout"`
+	DefaultGPU     int               `yaml:"default_gpu"`
+	Models         map[string]string `yaml:"models"`
+	ModelOptions   ModelOptions      `yaml:"model_options"`
+	Inference      InferenceConfig   `yaml:"inference"`
+	SystemPrompt   string            `yaml:"system_prompt"`
+	Search         SearchConfig      `yaml:"search"`
 }
 
 // ModelOptions configures how models are loaded.
@@ -136,4 +139,24 @@ func (c *Config) SearchAPIKey() string {
 		return c.Search.APIKey
 	}
 	return os.Getenv("BRAVE_API_KEY")
+}
+
+// Save writes the config to the given path as YAML.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// AddModel registers a named model alias.
+func (c *Config) AddModel(name, path string) {
+	if c.Models == nil {
+		c.Models = make(map[string]string)
+	}
+	c.Models[name] = path
 }

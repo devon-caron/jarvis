@@ -18,6 +18,7 @@ var (
 	maxTokens    int
 	contextSize  int
 	temperature  float64
+	modelFlag    string
 )
 
 var rootCmd = &cobra.Command{
@@ -36,6 +37,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
 	rootCmd.Flags().IntVarP(&contextSize, "context-size", "c", 8192, "Context window size in tokens (default 8192)")
 	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
+	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
 }
 
 // Execute runs the root command.
@@ -73,6 +75,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 			Messages: []protocol.ChatMessage{
 				{Role: "user", Content: prompt},
 			},
+			Model:        modelFlag,
 			WebSearch:    webSearch,
 			SystemPrompt: systemPrompt,
 			Opts:         opts,

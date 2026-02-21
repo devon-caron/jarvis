@@ -42,6 +42,19 @@ func TestDefaults(t *testing.T) {
 	if cfg.Models == nil {
 		t.Error("Models map should be initialized")
 	}
+	if cfg.DefaultGPU != 0 {
+		t.Errorf("DefaultGPU = %d, want 0", cfg.DefaultGPU)
+	}
+	if cfg.DefaultTimeout != "" {
+		t.Errorf("DefaultTimeout = %q, want empty", cfg.DefaultTimeout)
+	}
+}
+
+func TestDefaults_DefaultGPU(t *testing.T) {
+	cfg := Defaults()
+	if cfg.DefaultGPU != 0 {
+		t.Errorf("DefaultGPU = %d, want 0", cfg.DefaultGPU)
+	}
 }
 
 func TestLoadFrom_MissingFile(t *testing.T) {
@@ -61,6 +74,8 @@ func TestLoadFrom_ValidYAML(t *testing.T) {
 
 	yaml := `
 default_model: mymodel
+default_timeout: "30m"
+default_gpu: 1
 models:
   mymodel: /path/to/model.gguf
   small: /path/to/small.gguf
@@ -90,6 +105,12 @@ search:
 
 	if cfg.DefaultModel != "mymodel" {
 		t.Errorf("DefaultModel = %q, want mymodel", cfg.DefaultModel)
+	}
+	if cfg.DefaultTimeout != "30m" {
+		t.Errorf("DefaultTimeout = %q, want 30m", cfg.DefaultTimeout)
+	}
+	if cfg.DefaultGPU != 1 {
+		t.Errorf("DefaultGPU = %d, want 1", cfg.DefaultGPU)
 	}
 	if cfg.Models["mymodel"] != "/path/to/model.gguf" {
 		t.Errorf("Models[mymodel] = %q", cfg.Models["mymodel"])
@@ -211,5 +232,162 @@ func TestLoadFrom_NilModelsMap(t *testing.T) {
 	}
 	if cfg.Models == nil {
 		t.Error("Models should be initialized even when not in config")
+	}
+}
+
+func TestSave(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	cfg := Defaults()
+	cfg.DefaultModel = "testmodel"
+	cfg.DefaultGPU = 1
+	cfg.DefaultTimeout = "30m"
+	cfg.Models["test"] = "/path/to/test.gguf"
+
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Reload and verify
+	loaded, err := LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom after save: %v", err)
+	}
+	if loaded.DefaultModel != "testmodel" {
+		t.Errorf("DefaultModel = %q, want testmodel", loaded.DefaultModel)
+	}
+	if loaded.DefaultGPU != 1 {
+		t.Errorf("DefaultGPU = %d, want 1", loaded.DefaultGPU)
+	}
+	if loaded.DefaultTimeout != "30m" {
+		t.Errorf("DefaultTimeout = %q, want 30m", loaded.DefaultTimeout)
+	}
+	if loaded.Models["test"] != "/path/to/test.gguf" {
+		t.Errorf("Models[test] = %q", loaded.Models["test"])
+	}
+}
+
+func TestSave_CreatesDirectories(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "subdir", "config.yaml")
+
+	cfg := Defaults()
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Errorf("config file should exist: %v", err)
+	}
+}
+
+func TestAddModel(t *testing.T) {
+	cfg := Defaults()
+	cfg.AddModel("mymodel", "/path/to/model.gguf")
+
+	if cfg.Models["mymodel"] != "/path/to/model.gguf" {
+		t.Errorf("Models[mymodel] = %q, want /path/to/model.gguf", cfg.Models["mymodel"])
+	}
+
+	// Update existing
+	cfg.AddModel("mymodel", "/new/path.gguf")
+	if cfg.Models["mymodel"] != "/new/path.gguf" {
+		t.Errorf("Models[mymodel] = %q, want /new/path.gguf", cfg.Models["mymodel"])
+	}
+}
+
+func TestAddModel_NilMap(t *testing.T) {
+	cfg := &Config{}
+	cfg.AddModel("test", "/path.gguf")
+
+	if cfg.Models["test"] != "/path.gguf" {
+		t.Errorf("Models[test] = %q, want /path.gguf", cfg.Models["test"])
+	}
+}
+
+func TestLoad_UsesDefaultPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// No config file at the XDG path — should return defaults
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Inference.ContextSize != 8192 {
+		t.Errorf("ContextSize = %d, want default 8192", cfg.Inference.ContextSize)
+	}
+}
+
+func TestWriteDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	path, err := WriteDefault()
+	if err != nil {
+		t.Fatalf("WriteDefault: %v", err)
+	}
+	if path == "" {
+		t.Error("WriteDefault should return the config path")
+	}
+
+	// File should exist
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("config file should exist: %v", err)
+	}
+
+	// Calling again should return ErrExist
+	_, err = WriteDefault()
+	if err == nil {
+		t.Error("WriteDefault should error when file exists")
+	}
+}
+
+func TestLoadFrom_DefaultGPU_Unset(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte("default_model: test\n"), 0644)
+
+	cfg, err := LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	// DefaultGPU should be 0 (Go zero value) when not set
+	if cfg.DefaultGPU != 0 {
+		t.Errorf("DefaultGPU = %d, want 0", cfg.DefaultGPU)
+	}
+}
+
+func TestSave_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	cfg := Defaults()
+	cfg.DefaultTimeout = "1h"
+	cfg.DefaultGPU = 2
+	cfg.Models["big"] = "/models/big.gguf"
+	cfg.Models["small"] = "/models/small.gguf"
+
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+
+	if loaded.DefaultTimeout != "1h" {
+		t.Errorf("DefaultTimeout = %q, want 1h", loaded.DefaultTimeout)
+	}
+	if loaded.DefaultGPU != 2 {
+		t.Errorf("DefaultGPU = %d, want 2", loaded.DefaultGPU)
+	}
+	if loaded.Models["big"] != "/models/big.gguf" {
+		t.Errorf("Models[big] = %q", loaded.Models["big"])
+	}
+	if loaded.Models["small"] != "/models/small.gguf" {
+		t.Errorf("Models[small] = %q", loaded.Models["small"])
 	}
 }

@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
@@ -41,12 +42,39 @@ func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
 	}
 }
 
+func TestMarshalUnmarshalRequest_ChatWithModel(t *testing.T) {
+	req := &Request{
+		Type: ReqChat,
+		Chat: &ChatRequest{
+			Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+			Model:    "llama70b",
+		},
+	}
+
+	data, err := MarshalRequest(req)
+	if err != nil {
+		t.Fatalf("MarshalRequest: %v", err)
+	}
+
+	got, err := UnmarshalRequest(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRequest: %v", err)
+	}
+
+	if got.Chat.Model != "llama70b" {
+		t.Errorf("Model = %q, want llama70b", got.Chat.Model)
+	}
+}
+
 func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 	req := &Request{
 		Type: ReqLoad,
 		Load: &LoadRequest{
 			ModelPath: "/path/to/model.gguf",
+			Name:      "mymodel",
+			GPUs:      []int{0, 1},
 			GPULayers: -1,
+			Timeout:   "30m",
 		},
 	}
 
@@ -67,15 +95,48 @@ func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 		t.Fatal("Load payload is nil")
 	}
 	if got.Load.ModelPath != "/path/to/model.gguf" {
-		t.Errorf("ModelPath = %q, want %q", got.Load.ModelPath, "/path/to/model.gguf")
+		t.Errorf("ModelPath = %q", got.Load.ModelPath)
 	}
-	if got.Load.GPULayers != -1 {
-		t.Errorf("GPULayers = %d, want -1", got.Load.GPULayers)
+	if got.Load.Name != "mymodel" {
+		t.Errorf("Name = %q, want mymodel", got.Load.Name)
+	}
+	if len(got.Load.GPUs) != 2 || got.Load.GPUs[0] != 0 || got.Load.GPUs[1] != 1 {
+		t.Errorf("GPUs = %v, want [0, 1]", got.Load.GPUs)
+	}
+	if got.Load.Timeout != "30m" {
+		t.Errorf("Timeout = %q, want 30m", got.Load.Timeout)
+	}
+}
+
+func TestMarshalUnmarshalRequest_Unload(t *testing.T) {
+	req := &Request{
+		Type:   ReqUnload,
+		Unload: &UnloadRequest{Name: "mymodel"},
+	}
+
+	data, err := MarshalRequest(req)
+	if err != nil {
+		t.Fatalf("MarshalRequest: %v", err)
+	}
+
+	got, err := UnmarshalRequest(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRequest: %v", err)
+	}
+
+	if got.Type != ReqUnload {
+		t.Errorf("Type = %q, want %q", got.Type, ReqUnload)
+	}
+	if got.Unload == nil {
+		t.Fatal("Unload payload is nil")
+	}
+	if got.Unload.Name != "mymodel" {
+		t.Errorf("Name = %q, want mymodel", got.Unload.Name)
 	}
 }
 
 func TestMarshalUnmarshalRequest_Simple(t *testing.T) {
-	for _, typ := range []string{ReqUnload, ReqStatus, ReqStop} {
+	for _, typ := range []string{ReqStatus, ReqStop} {
 		req := &Request{Type: typ}
 		data, err := MarshalRequest(req)
 		if err != nil {
@@ -172,6 +233,7 @@ func TestMarshalUnmarshalResponse_OK(t *testing.T) {
 }
 
 func TestMarshalUnmarshalResponse_Status(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
 	resp := StatusResponse(&StatusPayload{
 		Running:     true,
 		ModelLoaded: true,
@@ -182,6 +244,15 @@ func TestMarshalUnmarshalResponse_Status(t *testing.T) {
 			GPULayers: 80,
 			GPUs: []GPUInfo{
 				{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
+			},
+		},
+		Models: []SlotInfo{
+			{
+				Name:      "test",
+				ModelPath: "/model.gguf",
+				GPUs:      []int{0},
+				Timeout:   "30m0s",
+				LastUsed:  now,
 			},
 		},
 	})
@@ -219,6 +290,15 @@ func TestMarshalUnmarshalResponse_Status(t *testing.T) {
 	}
 	if len(got.Status.Model.GPUs) != 1 {
 		t.Fatalf("GPUs len = %d, want 1", len(got.Status.Model.GPUs))
+	}
+	if len(got.Status.Models) != 1 {
+		t.Fatalf("Models len = %d, want 1", len(got.Status.Models))
+	}
+	if got.Status.Models[0].Name != "test" {
+		t.Errorf("Models[0].Name = %q, want test", got.Status.Models[0].Name)
+	}
+	if got.Status.Models[0].Timeout != "30m0s" {
+		t.Errorf("Models[0].Timeout = %q, want 30m0s", got.Status.Models[0].Timeout)
 	}
 }
 

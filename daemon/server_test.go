@@ -18,11 +18,13 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	sockPath := filepath.Join(dir, "test.sock")
 
 	backend := &mockBackend{}
-	backend.LoadModel("/model.gguf", -1)
-	mgr := NewModelManager(backend)
 	cfg := config.Defaults()
+	factory := func(c *config.Config) ModelBackend { return backend }
+	registry := NewModelRegistry(cfg, factory)
+	registry.Load("test", "/model.gguf", []int{0}, 0)
+
 	stopCh := make(chan struct{}, 1)
-	handler := NewHandler(mgr, cfg, nil, stopCh)
+	handler := NewHandler(registry, cfg, nil, stopCh)
 	server := NewServer(sockPath, handler)
 
 	if err := server.Listen(); err != nil {

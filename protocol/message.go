@@ -25,14 +25,16 @@ const (
 
 // Request is the envelope for all client-to-daemon messages.
 type Request struct {
-	Type   string       `json:"type"`
-	Chat   *ChatRequest `json:"chat,omitempty"`
-	Load   *LoadRequest `json:"load,omitempty"`
+	Type   string         `json:"type"`
+	Chat   *ChatRequest   `json:"chat,omitempty"`
+	Load   *LoadRequest   `json:"load,omitempty"`
+	Unload *UnloadRequest `json:"unload,omitempty"`
 }
 
 // ChatRequest holds the payload for a chat request.
 type ChatRequest struct {
 	Messages     []ChatMessage `json:"messages"`
+	Model        string        `json:"model,omitempty"`
 	WebSearch    bool          `json:"web_search,omitempty"`
 	SystemPrompt string        `json:"system_prompt,omitempty"`
 	Opts         InferenceOpts `json:"opts,omitempty"`
@@ -41,7 +43,15 @@ type ChatRequest struct {
 // LoadRequest holds the payload for a model load request.
 type LoadRequest struct {
 	ModelPath string `json:"model_path"`
+	Name      string `json:"name,omitempty"`
+	GPUs      []int  `json:"gpus,omitempty"`
 	GPULayers int    `json:"gpu_layers"`
+	Timeout   string `json:"timeout,omitempty"`
+}
+
+// UnloadRequest holds the payload for a model unload request.
+type UnloadRequest struct {
+	Name string `json:"name,omitempty"`
 }
 
 // Response is the envelope for all daemon-to-client messages.
@@ -69,6 +79,7 @@ type StatusPayload struct {
 	ModelPath   string       `json:"model_path,omitempty"`
 	PID         int          `json:"pid"`
 	Model       *ModelStatus `json:"model,omitempty"`
+	Models      []SlotInfo   `json:"models,omitempty"`
 }
 
 // MarshalRequest serializes a request to JSON bytes (no trailing newline).
