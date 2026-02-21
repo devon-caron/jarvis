@@ -45,8 +45,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.DefaultGPU != 0 {
 		t.Errorf("DefaultGPU = %d, want 0", cfg.DefaultGPU)
 	}
-	if cfg.DefaultTimeout != "" {
-		t.Errorf("DefaultTimeout = %q, want empty", cfg.DefaultTimeout)
+	if cfg.DefaultTimeout != "30m" {
+		t.Errorf("DefaultTimeout = %q, want 30m", cfg.DefaultTimeout)
 	}
 }
 

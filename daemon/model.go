@@ -137,20 +137,16 @@ func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duratio
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check GPU conflicts
+	// Check GPU conflicts before doing anything irreversible.
 	for _, gpu := range gpus {
-		if owner, ok := r.gpuInUse[gpu]; ok && owner != name {
+		if owner, ok := r.gpuInUse[gpu]; ok {
 			return fmt.Errorf("GPU %d already in use by model %q", gpu, owner)
 		}
 	}
 
-	// If model with same name is already loaded, unload it first
-	if existing, ok := r.slots[name]; ok {
-		existing.Unload()
-		for _, gpu := range existing.gpus {
-			delete(r.gpuInUse, gpu)
-		}
-		delete(r.slots, name)
+	// Reject duplicate names — caller must unload before reloading.
+	if _, ok := r.slots[name]; ok {
+		return fmt.Errorf("model %q is already loaded; unload it first", name)
 	}
 
 	// Create backend and load
@@ -208,8 +204,13 @@ func (r *ModelRegistry) Unload(name string) error {
 }
 
 // Chat routes a chat request to the appropriate model slot.
-// If name is empty: auto-route to single model, or to model on default GPU.
-func (r *ModelRegistry) Chat(ctx context.Context, name string, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
+//
+// Routing priority:
+//  1. name != ""  → route by model name
+//  2. gpu >= 0    → route to whichever model is on that GPU
+//  3. single model loaded → auto-route
+//  4. multiple models → route to model on cfg.DefaultGPU
+func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
 	r.mu.RLock()
 
 	if len(r.slots) == 0 {
@@ -220,20 +221,24 @@ func (r *ModelRegistry) Chat(ctx context.Context, name string, msgs []protocol.C
 	var slot *ModelSlot
 
 	if name != "" {
-		// Explicit model requested
 		s, ok := r.slots[name]
 		if !ok {
 			r.mu.RUnlock()
 			return fmt.Errorf("model %q not loaded", name)
 		}
 		slot = s
+	} else if gpu >= 0 {
+		owner, ok := r.gpuInUse[gpu]
+		if !ok {
+			r.mu.RUnlock()
+			return fmt.Errorf("no model loaded on GPU %d", gpu)
+		}
+		slot = r.slots[owner]
 	} else if len(r.slots) == 1 {
-		// Auto-route: only one model loaded
 		for _, s := range r.slots {
 			slot = s
 		}
 	} else {
-		// Multiple models: route to model on default GPU
 		defaultGPU := r.cfg.DefaultGPU
 		if owner, ok := r.gpuInUse[defaultGPU]; ok {
 			slot = r.slots[owner]

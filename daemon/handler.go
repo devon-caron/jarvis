@@ -127,8 +127,14 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 		opts.TopK = h.Config.Inference.TopK
 	}
 
-	// Route to model by name (empty = auto-route)
-	err := h.Registry.Chat(context.Background(), req.Model, msgs, opts, func(token string) {
+	// Resolve GPU pointer to int (-1 = not specified).
+	gpu := -1
+	if req.GPU != nil {
+		gpu = *req.GPU
+	}
+
+	// Route to model by name, GPU, or auto-route.
+	err := h.Registry.Chat(context.Background(), req.Model, gpu, msgs, opts, func(token string) {
 		rw.Write(protocol.DeltaResponse(token))
 	})
 	if err != nil {

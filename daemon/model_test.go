@@ -235,20 +235,27 @@ func TestRegistry_LoadUnload(t *testing.T) {
 	}
 }
 
-func TestRegistry_LoadReplacesExisting(t *testing.T) {
+func TestRegistry_Load_DuplicateName_Errors(t *testing.T) {
 	b1 := &mockBackend{}
-	b2 := &mockBackend{}
-	reg := newTestRegistry(t, b1, b2)
+	reg := newTestRegistry(t, b1)
 
 	reg.Load("test", "/model1.gguf", []int{0}, 0)
-	reg.Load("test", "/model2.gguf", []int{0}, 0)
 
-	models := reg.Status()
-	if len(models) != 1 {
-		t.Fatalf("expected 1 model, got %d", len(models))
+	err := reg.Load("test", "/model2.gguf", []int{1}, 0)
+	if err == nil {
+		t.Fatal("expected error when loading under an already-loaded name")
 	}
-	if models[0].ModelPath != "/model2.gguf" {
-		t.Errorf("ModelPath = %q, want /model2.gguf", models[0].ModelPath)
+}
+
+func TestRegistry_LoadSameGPU_Conflict(t *testing.T) {
+	b1 := &mockBackend{}
+	reg := newTestRegistry(t, b1)
+
+	reg.Load("test", "/model1.gguf", []int{0}, 0)
+
+	err := reg.Load("test", "/model1.gguf", []int{0}, 0)
+	if err == nil {
+		t.Fatal("expected GPU conflict error when reloading same model on same GPU")
 	}
 }
 
@@ -349,7 +356,7 @@ func TestRegistry_UnloadNotFound(t *testing.T) {
 func TestRegistry_Chat_NoModel(t *testing.T) {
 	reg := newTestRegistry(t)
 
-	err := reg.Chat(context.Background(), "", nil, protocol.InferenceOpts{}, func(string) {})
+	err := reg.Chat(context.Background(), "", -1, nil, protocol.InferenceOpts{}, func(string) {})
 	if !errors.Is(err, ErrNoModel) {
 		t.Errorf("expected ErrNoModel, got: %v", err)
 	}
@@ -362,7 +369,7 @@ func TestRegistry_Chat_SingleModel_AutoRoute(t *testing.T) {
 	reg.Load("test", "/model.gguf", []int{0}, 0)
 
 	var tokens []string
-	err := reg.Chat(context.Background(), "",
+	err := reg.Chat(context.Background(), "", -1,
 		[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
 		protocol.InferenceOpts{},
 		func(token string) { tokens = append(tokens, token) },
@@ -383,7 +390,7 @@ func TestRegistry_Chat_ExplicitName(t *testing.T) {
 	reg.Load("m1", "/m1.gguf", []int{0}, 0)
 	reg.Load("m2", "/m2.gguf", []int{1}, 0)
 
-	err := reg.Chat(context.Background(), "m2",
+	err := reg.Chat(context.Background(), "m2", -1,
 		[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
 		protocol.InferenceOpts{},
 		func(string) {},
@@ -402,7 +409,7 @@ func TestRegistry_Chat_ExplicitName_NotFound(t *testing.T) {
 
 	reg.Load("test", "/model.gguf", []int{0}, 0)
 
-	err := reg.Chat(context.Background(), "nonexistent",
+	err := reg.Chat(context.Background(), "nonexistent", -1,
 		nil, protocol.InferenceOpts{}, func(string) {},
 	)
 	if err == nil {
@@ -429,7 +436,7 @@ func TestRegistry_Chat_DefaultGPU_Routing(t *testing.T) {
 	reg.Load("m2", "/m2.gguf", []int{1}, 0)
 
 	// Chat without name should route to default GPU (1) = m2
-	err := reg.Chat(context.Background(), "",
+	err := reg.Chat(context.Background(), "", -1,
 		[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
 		protocol.InferenceOpts{},
 		func(string) {},
@@ -464,7 +471,7 @@ func TestRegistry_Chat_DefaultGPU_NoModelOnDefault(t *testing.T) {
 	reg.Load("m2", "/m2.gguf", []int{1}, 0)
 
 	// No model on GPU 2 — should error
-	err := reg.Chat(context.Background(), "",
+	err := reg.Chat(context.Background(), "", -1,
 		nil, protocol.InferenceOpts{}, func(string) {},
 	)
 	if err == nil {
@@ -478,7 +485,7 @@ func TestRegistry_Chat_ChatError(t *testing.T) {
 
 	reg.Load("test", "/model.gguf", []int{0}, 0)
 
-	err := reg.Chat(context.Background(), "",
+	err := reg.Chat(context.Background(), "", -1,
 		nil, protocol.InferenceOpts{}, func(string) {},
 	)
 	if err == nil || err.Error() != "chat failed" {
@@ -497,7 +504,7 @@ func TestRegistry_ConcurrentChat(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reg.Chat(context.Background(), "",
+			reg.Chat(context.Background(), "", -1,
 				[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
 				protocol.InferenceOpts{},
 				func(string) {},
@@ -624,5 +631,44 @@ func TestRegistry_GPUConflict_MultiGPU(t *testing.T) {
 	err := reg.Load("m2", "/m2.gguf", []int{1}, 0)
 	if err == nil {
 		t.Error("expected GPU conflict for overlapping GPU")
+	}
+}
+
+func TestRegistry_Chat_GPURouting(t *testing.T) {
+	b1 := &mockBackend{}
+	b2 := &mockBackend{}
+	reg := newTestRegistry(t, b1, b2)
+
+	reg.Load("m1", "/m1.gguf", []int{0}, 0)
+	reg.Load("m2", "/m2.gguf", []int{1}, 0)
+
+	// Route explicitly to GPU 1 → should hit m2
+	err := reg.Chat(context.Background(), "", 1,
+		[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
+		protocol.InferenceOpts{},
+		func(string) {},
+	)
+	if err != nil {
+		t.Fatalf("Chat by GPU: %v", err)
+	}
+	if b2.chatCalls.Load() != 1 {
+		t.Errorf("expected m2 (GPU 1) to be called, got %d calls", b2.chatCalls.Load())
+	}
+	if b1.chatCalls.Load() != 0 {
+		t.Errorf("m1 should not be called, got %d calls", b1.chatCalls.Load())
+	}
+}
+
+func TestRegistry_Chat_GPURouting_NoModel(t *testing.T) {
+	backend := &mockBackend{}
+	reg := newTestRegistry(t, backend)
+
+	reg.Load("m1", "/m1.gguf", []int{0}, 0)
+
+	err := reg.Chat(context.Background(), "", 1,
+		nil, protocol.InferenceOpts{}, func(string) {},
+	)
+	if err == nil {
+		t.Error("expected error when no model on requested GPU")
 	}
 }

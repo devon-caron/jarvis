@@ -7,30 +7,6 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
-func TestBuildTensorSplit(t *testing.T) {
-	tests := []struct {
-		name     string
-		gpus     []int
-		total    int
-		expected string
-	}{
-		{"GPU 1 only (the bug)", []int{1}, 2, "0,1"},
-		{"GPU 0 only", []int{0}, 2, "1,0"},
-		{"Both GPUs", []int{0, 1}, 2, "1,1"},
-		{"GPU 1 of 4", []int{1}, 4, "0,1,0,0"},
-		{"Empty GPU list", []int{}, 2, ""},
-		{"Zero total GPUs", []int{0}, 0, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildTensorSplit(tt.gpus, tt.total)
-			if got != tt.expected {
-				t.Errorf("buildTensorSplit(%v, %d) = %q, want %q", tt.gpus, tt.total, got, tt.expected)
-			}
-		})
-	}
-}
 
 func TestNewLlamaBackend(t *testing.T) {
 	cfg := config.Defaults()

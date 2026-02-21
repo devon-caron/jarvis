@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // SocketPath returns the path to the daemon's Unix socket.
@@ -49,4 +50,13 @@ func LogDir() string {
 // LogPath returns the path to the daemon log file.
 func LogPath() string {
 	return filepath.Join(LogDir(), "daemon.log")
+}
+
+// WorkerSocketPath returns the Unix socket path for a named worker subprocess.
+func WorkerSocketPath(name string) string {
+	safe := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(name, "_")
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "jarvis-worker-"+safe+".sock")
+	}
+	return fmt.Sprintf("/tmp/jarvis-worker-%s-%d.sock", safe, os.Getuid())
 }

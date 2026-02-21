@@ -45,11 +45,8 @@ func Run() error {
 
 	log.Printf("jarvis daemon starting (pid=%d)", os.Getpid())
 
-	// Create model registry with factory for llama backends
-	newBackend := func(c *config.Config) ModelBackend {
-		return NewLlamaBackend(c)
-	}
-	registry := NewModelRegistry(cfg, newBackend)
+	// Create model registry with factory for worker backends
+	registry := NewModelRegistry(cfg, NewWorkerBackend)
 	defer registry.Shutdown()
 
 	// Set up search

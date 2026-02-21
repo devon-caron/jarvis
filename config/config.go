@@ -48,7 +48,8 @@ type SearchConfig struct {
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	return &Config{
-		Models: make(map[string]string),
+		Models:         make(map[string]string),
+		DefaultTimeout: "30m",
 		ModelOptions: ModelOptions{
 			GPULayers: -1,
 		},

@@ -19,6 +19,7 @@ var (
 	contextSize  int
 	temperature  float64
 	modelFlag    string
+	gpuFlag      int
 )
 
 var rootCmd = &cobra.Command{
@@ -38,6 +39,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&contextSize, "context-size", "c", 8192, "Context window size in tokens (default 8192)")
 	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
 	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
+	rootCmd.Flags().IntVarP(&gpuFlag, "gpu", "g", -1, "Route to whichever model is loaded on this GPU")
 }
 
 // Execute runs the root command.
@@ -69,6 +71,12 @@ func runChat(cmd *cobra.Command, args []string) error {
 		opts.Temperature = temperature
 	}
 
+	var gpuPtr *int
+	if gpuFlag >= 0 {
+		g := gpuFlag
+		gpuPtr = &g
+	}
+
 	req := &protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
@@ -76,6 +84,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 				{Role: "user", Content: prompt},
 			},
 			Model:        modelFlag,
+			GPU:          gpuPtr,
 			WebSearch:    webSearch,
 			SystemPrompt: systemPrompt,
 			Opts:         opts,
