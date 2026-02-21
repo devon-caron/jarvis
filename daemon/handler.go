@@ -185,11 +185,17 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 }
 
 func (h *Handler) handleUnload(req *protocol.UnloadRequest, rw *ResponseWriter) {
-	name := ""
-	if req != nil {
-		name = req.Name
+	var err error
+	if req != nil && req.GPU != nil {
+		err = h.Registry.UnloadByGPU(*req.GPU)
+	} else {
+		name := ""
+		if req != nil {
+			name = req.Name
+		}
+		err = h.Registry.Unload(name)
 	}
-	if err := h.Registry.Unload(name); err != nil {
+	if err != nil {
 		rw.Write(protocol.ErrorResponse(err.Error()))
 		return
 	}

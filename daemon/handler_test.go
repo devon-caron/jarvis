@@ -569,6 +569,42 @@ func TestHandler_Load_DefaultName(t *testing.T) {
 	}
 }
 
+func TestHandler_Unload_ByGPU(t *testing.T) {
+	b1 := &mockBackend{}
+	b2 := &mockBackend{}
+	cfg := config.Defaults()
+	idx := 0
+	backends := []*mockBackend{b1, b2}
+	factory := func(c *config.Config) ModelBackend {
+		b := backends[idx]
+		idx++
+		return b
+	}
+	registry := NewModelRegistry(cfg, factory)
+	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
+
+	registry.Load("m1", "/m1.gguf", []int{0}, 0)
+	registry.Load("m2", "/m2.gguf", []int{1}, 0)
+
+	gpu := 0
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+	h.Handle(&protocol.Request{
+		Type:   protocol.ReqUnload,
+		Unload: &protocol.UnloadRequest{GPU: &gpu},
+	}, rw)
+
+	responses := readResponses(t, &buf)
+	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
+		t.Errorf("expected OK, got %v", responses)
+	}
+
+	models := registry.Status()
+	if len(models) != 1 || models[0].Name != "m2" {
+		t.Errorf("expected only m2 remaining after unloading GPU 0, got %v", models)
+	}
+}
+
 func TestHandler_Unload_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Registry.Load("test", "/model.gguf", []int{0}, 0)

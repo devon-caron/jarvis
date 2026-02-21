@@ -659,6 +659,33 @@ func TestRegistry_Chat_GPURouting(t *testing.T) {
 	}
 }
 
+func TestRegistry_UnloadByGPU(t *testing.T) {
+	b1 := &mockBackend{}
+	b2 := &mockBackend{}
+	reg := newTestRegistry(t, b1, b2)
+
+	reg.Load("m1", "/m1.gguf", []int{0}, 0)
+	reg.Load("m2", "/m2.gguf", []int{1}, 0)
+
+	if err := reg.UnloadByGPU(0); err != nil {
+		t.Fatalf("UnloadByGPU(0): %v", err)
+	}
+
+	models := reg.Status()
+	if len(models) != 1 || models[0].Name != "m2" {
+		t.Errorf("expected only m2 remaining, got %v", models)
+	}
+}
+
+func TestRegistry_UnloadByGPU_NoModel(t *testing.T) {
+	reg := newTestRegistry(t)
+
+	err := reg.UnloadByGPU(0)
+	if err == nil {
+		t.Error("expected error when no model on GPU")
+	}
+}
+
 func TestRegistry_Chat_GPURouting_NoModel(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)

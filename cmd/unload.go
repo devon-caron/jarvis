@@ -9,24 +9,30 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
+var unloadGPU int
+
 var unloadCmd = &cobra.Command{
 	Use:   "unload [model-name]",
 	Short: "Unload a model from VRAM",
-	Long:  "Unload a specific model by name. If only one model is loaded, the name is optional.",
+	Long:  "Unload a model by name, or by GPU with -g. If only one model is loaded, the name is optional.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runUnload,
 }
 
 func init() {
+	unloadCmd.Flags().IntVarP(&unloadGPU, "gpu", "g", -1, "Unload whichever model is on this GPU")
 	rootCmd.AddCommand(unloadCmd)
 }
 
 func runUnload(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
-	var name string
-	if len(args) > 0 {
-		name = args[0]
+	unload := &protocol.UnloadRequest{}
+	if unloadGPU >= 0 {
+		g := unloadGPU
+		unload.GPU = &g
+	} else if len(args) > 0 {
+		unload.Name = args[0]
 	}
 
 	c, err := client.Connect()
@@ -35,12 +41,7 @@ func runUnload(cmd *cobra.Command, args []string) error {
 	}
 	defer c.Close()
 
-	req := &protocol.Request{
-		Type:   protocol.ReqUnload,
-		Unload: &protocol.UnloadRequest{Name: name},
-	}
-
-	if err := c.SendAndWaitOK(req); err != nil {
+	if err := c.SendAndWaitOK(&protocol.Request{Type: protocol.ReqUnload, Unload: unload}); err != nil {
 		return fmt.Errorf("unload failed: %w", err)
 	}
 

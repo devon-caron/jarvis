@@ -165,6 +165,18 @@ func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duratio
 	return nil
 }
 
+// UnloadByGPU unloads whichever model is currently on the given GPU.
+func (r *ModelRegistry) UnloadByGPU(gpu int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	owner, ok := r.gpuInUse[gpu]
+	if !ok {
+		return fmt.Errorf("no model loaded on GPU %d", gpu)
+	}
+	return r.unloadLocked(owner)
+}
+
 // Unload unloads a specific model by name. If name is empty and only one model
 // is loaded, unloads that one.
 func (r *ModelRegistry) Unload(name string) error {
@@ -187,15 +199,18 @@ func (r *ModelRegistry) Unload(name string) error {
 		}
 	}
 
-	slot, ok := r.slots[name]
-	if !ok {
+	if _, ok := r.slots[name]; !ok {
 		return fmt.Errorf("model %q not loaded", name)
 	}
+	return r.unloadLocked(name)
+}
 
+// unloadLocked tears down the named slot. Caller must hold r.mu (write lock).
+func (r *ModelRegistry) unloadLocked(name string) error {
+	slot := r.slots[name]
 	if err := slot.Unload(); err != nil {
 		return err
 	}
-
 	for _, gpu := range slot.gpus {
 		delete(r.gpuInUse, gpu)
 	}

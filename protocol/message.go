@@ -53,6 +53,7 @@ type LoadRequest struct {
 // UnloadRequest holds the payload for a model unload request.
 type UnloadRequest struct {
 	Name string `json:"name,omitempty"`
+	GPU  *int   `json:"gpu,omitempty"` // nil = not specified; unload by GPU index
 }
 
 // Response is the envelope for all daemon-to-client messages.
