@@ -1,0 +1,471 @@
+ Plan: Rework Model Loading System (Multi-GPU, Multi-Model)                                                 
+
+ Context
+
+ The current daemon loads models directly in-process using LlamaBackend + ModelManager. Because
+ CUDA_VISIBLE_DEVICES must be set before CUDA initializes in a process, and only one model is supported at a
+ time, independent GPU assignment per model is impossible in the current design. This rework replaces the
+ monolithic daemon with a coordinator + worker subprocess pattern, where the main daemon becomes a pure
+ coordinator and each loaded model runs as a separate subprocess with its own CUDA_VISIBLE_DEVICES
+ environment variable.
+
+ ---
+ Architecture
+
+ Client → Main Daemon (coordinator, no CUDA)
+               ├── Registry: modelPath → WorkerInfo{PID, socket, GPUs, timeout}
+               ├── GPU lock map: deviceID → modelPath
+               └── Workers (one per loaded model):
+                     _worker subprocess, CUDA_VISIBLE_DEVICES=0,1
+                     owns a Unix socket (/tmp/jarvis-<uid>-worker-<hash>.sock)
+                     loads one model via LlamaBackend+ModelManager+Server+Handler
+
+ Chat requests are proxied via the main daemon: main daemon looks up the right worker and forwards the NDJSON
+  request line, streaming response lines back to the client.
+
+ ---
+ New User-Facing Behavior
+
+ # Load model on GPUs 0 and 1, auto-unload after 1 hour
+ jarvis load -g 0,1 -t 3600 /path/to/model.gguf
+
+ # Load another model on GPU 2, no timeout
+ jarvis load -g 2 /path/to/other-model.gguf
+
+ # Chat with a specific loaded model
+ jarvis -m /path/to/model.gguf "hello"
+
+ # Unload a specific model
+ jarvis unload /path/to/model.gguf
+
+ # Status shows all workers
+ jarvis status
+
+ ---
+ Implementation Steps
+
+ Step 1 — Config: Add new fields to ModelOptions
+
+ File: config/config.go
+
+ Add to ModelOptions:
+ DefaultTimeout int   `yaml:"default_timeout"` // seconds; 0 = no timeout
+ DefaultGPUs    []int `yaml:"default_gpus"`    // e.g. [0]; nil = use env/gpu_layers
+ Update Defaults(): DefaultTimeout: 0, DefaultGPUs: nil.
+
+ ---
+ Step 2 — Protocol: Extend message types
+
+ File: protocol/message.go
+
+ // Add to Request struct:
+ Unload *UnloadRequest `json:"unload,omitempty"`
+
+ // New type:
+ type UnloadRequest struct {
+     ModelPath string `json:"model_path,omitempty"` // empty = auto-select
+ }
+
+ // Extend LoadRequest:
+ type LoadRequest struct {
+     ModelPath string `json:"model_path"`
+     GPULayers int    `json:"gpu_layers"`
+     GPUs      []int  `json:"gpus,omitempty"`    // CUDA device IDs to use
+     Timeout   int    `json:"timeout,omitempty"` // seconds; 0 = no timeout
+ }
+
+ // Extend ChatRequest:
+ type ChatRequest struct {
+     // ... existing fields unchanged ...
+     ModelPath string `json:"model_path,omitempty"` // target model; empty = auto-select
+ }
+
+ // Extend StatusPayload:
+ type StatusPayload struct {
+     Running     bool          `json:"running"`
+     PID         int           `json:"pid"`
+     ModelLoaded bool          `json:"model_loaded,omitempty"` // compat: true if Workers > 0
+     ModelPath   string        `json:"model_path,omitempty"`   // compat: first worker path
+     Model       *ModelStatus  `json:"model,omitempty"`        // compat: first worker model
+     Workers     []WorkerStatus `json:"workers,omitempty"`
+ }
+
+ // New type in protocol/types.go:
+ type WorkerStatus struct {
+     ModelPath string       `json:"model_path"`
+     WorkerPID int          `json:"worker_pid"`
+     GPUs      []int        `json:"gpus"`
+     GPULayers int          `json:"gpu_layers"`
+     TimeoutAt int64        `json:"timeout_at,omitempty"` // unix seconds; 0=none
+     Model     *ModelStatus `json:"model,omitempty"`
+ }
+
+ ---
+ Step 3 — Internal: Add worker socket path
+
+ File: internal/paths.go
+
+ import "hash/fnv"
+
+ // WorkerSocketPath returns a deterministic socket path for a worker identified by id.
+ // id should be a stable string like "modelpath|gpulist".
+ func WorkerSocketPath(id string) string {
+     h := fnv.New32a()
+     h.Write([]byte(id))
+     hash := fmt.Sprintf("%08x", h.Sum32())
+     if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+         return filepath.Join(dir, "jarvis-worker-"+hash+".sock")
+     }
+     return fmt.Sprintf("/tmp/jarvis-%d-worker-%s.sock", os.Getuid(), hash)
+ }
+
+ Also add WorkerLogPath(hash string) string following the same LogDir() pattern.
+
+ ---
+ Step 4 — New: daemon/registry.go
+
+ New file: daemon/registry.go
+
+ type WorkerInfo struct {
+     ModelPath  string    // resolved absolute path
+     SocketPath string
+     PID        int
+     GPUs       []int
+     GPULayers  int
+     TimeoutAt  time.Time // zero = no timeout
+ }
+
+ type Registry struct {
+     mu      sync.RWMutex
+     workers map[string]*WorkerInfo // modelPath → info
+     gpuLock map[int]string         // deviceID → modelPath
+ }
+
+ func NewRegistry() *Registry
+ // RegisterIfAvailable: atomically checks GPU/model conflicts, then registers.
+ // Returns error if any GPU is in use or model is already loaded.
+ func (r *Registry) RegisterIfAvailable(info *WorkerInfo) error
+ func (r *Registry) Unregister(modelPath string)
+ func (r *Registry) FindByModel(modelPath string) *WorkerInfo
+ func (r *Registry) List() []*WorkerInfo
+ func (r *Registry) Count() int
+
+ RegisterIfAvailable does the check-and-register under a single write lock to avoid TOCTOU races.
+
+ ---
+ Step 5 — New: worker/worker.go (new package)
+
+ New file: worker/worker.go
+
+ The worker is a self-contained mini-daemon that reuses the existing daemon package types:
+
+ type Config struct {
+     ModelPath  string
+     SocketPath string
+     GPULayers  int
+     Timeout    int // seconds; 0 = no timeout
+ }
+
+ func Run(cfg *Config) error {
+     // 1. Load app config (for inference defaults, system prompt, search)
+     // 2. Set up logging to WorkerLogPath
+     // 3. backend := daemon.NewLlamaBackend(appCfg)
+     //    manager := daemon.NewModelManager(backend)
+     //    if err := manager.Load(cfg.ModelPath, cfg.GPULayers); err != nil { return err }
+     // 4. stopCh := make(chan struct{}, 1)
+     //    handler := daemon.NewHandler(manager, appCfg, searcher, stopCh)
+     //    server := daemon.NewServer(cfg.SocketPath, handler)
+     //    server.Listen()
+     // 5. fmt.Fprintln(os.Stdout, "ready")  ← parent reads this for readiness
+     // 6. If cfg.Timeout > 0: time.AfterFunc(duration, server.Close)
+     // 7. go server.Serve(); select on stopCh/signal/errCh
+     // 8. manager.Shutdown()
+ }
+
+ The worker reuses daemon.NewHandler unchanged — it still handles chat, status, unload correctly. The
+ ModelPath field in ChatRequest is ignored by the worker (it only has one model). The worker exits after
+ unload is received (add os.Exit(0) after Unload succeeds in handler, or signal stopCh).
+
+ Note on daemon.Handler.handleStop: The worker should respond to stop/unload by calling os.Exit(0) after
+ sending OK, so the monitorWorker goroutine in the daemon naturally fires.
+
+ ---
+ Step 6 — New: cmd/worker.go (hidden subcommand)
+
+ New file: cmd/worker.go
+
+ Mirrors cmd/daemon.go:
+
+ var workerModelPath string
+ var workerSocketPath string
+ var workerGPULayers  int
+ var workerTimeout    int
+
+ var workerCmd = &cobra.Command{
+     Use:    "_worker",
+     Hidden: true,
+     RunE: func(cmd *cobra.Command, args []string) error {
+         return worker.Run(&worker.Config{
+             ModelPath:  workerModelPath,
+             SocketPath: workerSocketPath,
+             GPULayers:  workerGPULayers,
+             Timeout:    workerTimeout,
+         })
+     },
+ }
+
+ func init() {
+     workerCmd.Flags().StringVar(&workerModelPath, "model-path", "", "")
+     workerCmd.Flags().StringVar(&workerSocketPath, "socket", "", "")
+     workerCmd.Flags().IntVar(&workerGPULayers, "gpu-layers", -1, "")
+     workerCmd.Flags().IntVar(&workerTimeout, "timeout", 0, "")
+     rootCmd.AddCommand(workerCmd)
+ }
+
+ ---
+ Step 7 — New: daemon/worker_manager.go
+
+ type WorkerManager struct {
+     registry *Registry
+     exe      string // os.Executable() result
+ }
+
+ func NewWorkerManager(registry *Registry) (*WorkerManager, error)
+
+ // SpawnWorker spawns a _worker subprocess, waits for "ready\n" on stdout,
+ // and registers it with the registry. Returns WorkerInfo on success.
+ func (wm *WorkerManager) SpawnWorker(modelPath string, req *protocol.LoadRequest, defaultGPULayers int)
+ (*WorkerInfo, error) {
+     // 1. Compute socket path: internal.WorkerSocketPath(modelPath + "|" + gpuListStr)
+     // 2. Build CUDA_VISIBLE_DEVICES: strings.Join(gpus as strings, ",")
+     //    If req.GPUs is nil/empty, do NOT set CUDA_VISIBLE_DEVICES (inherit env)
+     // 3. env = append(os.Environ(), "CUDA_VISIBLE_DEVICES=0,1")
+     //    (or filter existing CUDA_VISIBLE_DEVICES and replace)
+     // 4. cmd = exec.Command(exe, "_worker",
+     //         "--model-path", modelPath,
+     //         "--socket", socketPath,
+     //         "--gpu-layers", strconv.Itoa(effectiveGPULayers),
+     //         "--timeout", strconv.Itoa(effectiveTimeout))
+     // 5. cmd.Env = env
+     //    cmd.Stdout = stdoutPipe (via cmd.StdoutPipe())
+     //    cmd.Stderr = workerLogFile
+     //    // No Setsid: workers are children of daemon, cleaned up on daemon exit
+     // 6. cmd.Start()
+     // 7. Read "ready\n" from stdoutPipe with 30s deadline
+     // 8. info = &WorkerInfo{ModelPath, SocketPath, PID: cmd.Process.Pid, ...}
+     // 9. registry.RegisterIfAvailable(info)
+     //    (if registration fails, cmd.Process.Kill(); return error)
+     // 10. go wm.monitorWorker(info, cmd)
+     // 11. return info, nil
+ }
+
+ func (wm *WorkerManager) monitorWorker(info *WorkerInfo, cmd *exec.Cmd) {
+     cmd.Wait()
+     log.Printf("worker for %s (pid %d) exited", info.ModelPath, info.PID)
+     wm.registry.Unregister(info.ModelPath)
+     os.Remove(info.SocketPath)
+ }
+
+ func (wm *WorkerManager) KillWorker(info *WorkerInfo) error {
+     // Send unload request to worker socket via client.ConnectTo(socketPath)
+     // If no response within 10s, escalate to cmd.Process.Signal(syscall.SIGTERM)
+ }
+
+ func (wm *WorkerManager) ShutdownAll() {
+     for _, w := range wm.registry.List() {
+         wm.KillWorker(w)
+     }
+ }
+
+ ---
+ Step 8 — Refactor: daemon/handler.go
+
+ Replace Handler struct. Keep ResponseWriter unchanged.
+
+ // CoordinatorHandler replaces Handler in the main daemon.
+ // Workers continue to use the existing Handler (renamed internally or kept as-is).
+ type CoordinatorHandler struct {
+     Registry      *Registry
+     WorkerManager *WorkerManager
+     Config        *config.Config
+     StopCh        chan struct{}
+ }
+
+ handleLoad: Resolve alias → registry.RegisterIfAvailable (reserve) → wm.SpawnWorker → send OK. On any
+ failure, unregister reservation.
+
+ handleChat: Select worker by req.ModelPath (resolved) or auto-select (error if 0 or >1). Call
+ proxyToWorker(worker.SocketPath, req, rw).
+
+ proxyToWorker:
+ func (h *CoordinatorHandler) proxyToWorker(socketPath string, req *protocol.Request, rw *ResponseWriter)
+ error {
+     conn, err := net.Dial("unix", socketPath)
+     // ...
+     data, _ := protocol.MarshalRequest(req)
+     conn.Write(append(data, '\n'))
+     scanner := bufio.NewScanner(conn)
+     for scanner.Scan() {
+         rw.w.Write(append(scanner.Bytes(), '\n')) // verbatim forwarding
+         resp, _ := protocol.UnmarshalResponse(scanner.Bytes())
+         if resp.Type == protocol.RespDone || resp.Type == protocol.RespError { break }
+     }
+ }
+
+ handleUnload: Find worker by model path (or auto-select). Call wm.KillWorker(info).
+
+ handleStatus: Build StatusPayload.Workers from registry.List(). For each worker, optionally query its socket
+  for GPU mem stats. Populate legacy fields from Workers[0] for compat.
+
+ handleStop: Call wm.ShutdownAll(), then signal StopCh.
+
+ ---
+ Step 9 — Refactor: daemon/daemon.go
+
+ Replace:
+ backend := NewLlamaBackend(cfg)
+ manager := NewModelManager(backend)
+ handler := NewHandler(manager, cfg, searcher, stopCh)
+
+ With:
+ registry := NewRegistry()
+ wm, err := NewWorkerManager(registry)
+ handler := NewCoordinatorHandler(registry, wm, cfg, stopCh)
+
+ Update auto-load:
+ if cfg.DefaultModel != "" {
+     modelPath := cfg.ResolveModel(cfg.DefaultModel)
+     req := &protocol.LoadRequest{
+         ModelPath: modelPath,
+         GPULayers: cfg.ModelOptions.GPULayers,
+         GPUs:      cfg.ModelOptions.DefaultGPUs,
+         Timeout:   cfg.ModelOptions.DefaultTimeout,
+     }
+     if _, err := wm.SpawnWorker(modelPath, req, cfg.ModelOptions.GPULayers); err != nil {
+         log.Printf("warning: failed to auto-load default model: %v", err)
+     }
+ }
+
+ Shutdown:
+ // Before server.Close():
+ wm.ShutdownAll()
+
+ ---
+ Step 10 — CLI: Update cmd/load.go
+
+ var loadGPUsStr   string  // new: comma-separated GPU IDs
+ var loadGPULayers int     // existing: kept as long-form only
+ var loadTimeout   int     // new
+
+ func init() {
+     loadCmd.Flags().StringVarP(&loadGPUsStr, "gpus", "g", "", "Comma-separated GPU device IDs (e.g. 0,1)")
+     loadCmd.Flags().IntVar(&loadGPULayers, "gpu-layers", -1, "Layers to offload to GPU (-1 for all)")
+     loadCmd.Flags().IntVarP(&loadTimeout, "timeout", "t", 0, "Seconds until auto-unload (0 = never, default
+ from config)")
+     rootCmd.AddCommand(loadCmd)
+ }
+
+ // In runLoad: parse loadGPUsStr → []int with validation
+
+ ---
+ Step 11 — CLI: Update cmd/root.go
+
+ Add -m/--model flag:
+ var modelPath string
+ rootCmd.Flags().StringVarP(&modelPath, "model", "m", "", "Model path or alias to use for chat")
+
+ In runChat, include ModelPath: modelPath in ChatRequest.
+
+ ---
+ Step 12 — CLI: Update cmd/unload.go
+
+ Change Use to "unload [model-path-or-alias]", Args to cobra.MaximumNArgs(1). Pass UnloadRequest.ModelPath if
+  arg given.
+
+ ---
+ Step 13 — CLI: Update cmd/status.go
+
+ Update display to iterate StatusPayload.Workers. Show per-worker info (path, PID, GPUs, timeout remaining,
+ GPU mem stats).
+
+ ---
+ Files Summary
+
+ Action: Modify
+ File: config/config.go
+ Change: Add DefaultTimeout, DefaultGPUs to ModelOptions
+ ────────────────────────────────────────
+ Action: Modify
+ File: protocol/message.go
+ Change: Extend LoadRequest, ChatRequest, Request, StatusPayload; add UnloadRequest, WorkerStatus
+ ────────────────────────────────────────
+ Action: Modify
+ File: internal/paths.go
+ Change: Add WorkerSocketPath(), WorkerLogPath()
+ ────────────────────────────────────────
+ Action: New
+ File: daemon/registry.go
+ Change: Registry, WorkerInfo, GPU lock map
+ ────────────────────────────────────────
+ Action: New
+ File: daemon/worker_manager.go
+ Change: Spawn/monitor/kill worker subprocesses
+ ────────────────────────────────────────
+ Action: New
+ File: worker/worker.go
+ Change: Worker process: load model, serve socket, timeout
+ ────────────────────────────────────────
+ Action: New
+ File: cmd/worker.go
+ Change: Hidden _worker subcommand
+ ────────────────────────────────────────
+ Action: Modify
+ File: daemon/handler.go
+ Change: Replace Handler with CoordinatorHandler; add proxy logic
+ ────────────────────────────────────────
+ Action: Modify
+ File: daemon/daemon.go
+ Change: Swap ModelManager → Registry+WorkerManager; update auto-load
+ ────────────────────────────────────────
+ Action: Modify
+ File: cmd/load.go
+ Change: -g/--gpus (new), -t/--timeout (new), remove -g from --gpu-layers
+ ────────────────────────────────────────
+ Action: Modify
+ File: cmd/root.go
+ Change: Add -m/--model flag
+ ────────────────────────────────────────
+ Action: Modify
+ File: cmd/unload.go
+ Change: Add optional model path arg
+ ────────────────────────────────────────
+ Action: Modify
+ File: cmd/status.go
+ Change: Update display for multi-worker output
+
+ daemon/model.go and daemon/llama_engine.go are unchanged — workers import them directly from the daemon
+ package.
+
+ ---
+ Example Config YAML
+
+ model_options:
+   gpu_layers: -1
+   tensor_split: ""
+   mlock: false
+   default_timeout: 3600   # auto-unload after 1 hour (0 = never)
+   default_gpus: [0]       # default GPU for loads without --gpus
+
+ ---
+ Verification
+
+ 1. jarvis start — daemon starts, no CUDA initialized in coordinator process
+ 2. jarvis load -g 0 -t 3600 /path/model-a.gguf — worker A spawned with CUDA_VISIBLE_DEVICES=0
+ 3. jarvis load -g 1 /path/model-b.gguf — worker B spawned with CUDA_VISIBLE_DEVICES=1
+ 4. jarvis load -g 0 /path/model-c.gguf — returns error: "GPU 0 already in use by model-a"
+ 5. jarvis "hello" — error: "multiple models loaded; use -m to select"
+ 6. jarvis -m /path/model-a.gguf "hello" — routes to worker A, streams response
+ 7. jarvis status — shows both workers with GPU IDs, PIDs, timeouts
+ 8. After 3600s — worker A's timeout fires, model A auto-unloads, GPU 0 lock released
+ 9. jarvis unload /path/model-b.gguf — sends unload to worker B, GPU 1 released
+ 10. jarvis stop — ShutdownAll() kills remaining workers, daemon exits
