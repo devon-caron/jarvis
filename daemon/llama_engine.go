@@ -21,17 +21,11 @@ func NewLlamaBackend(cfg *config.Config) *LlamaBackend {
 	return &LlamaBackend{cfg: cfg}
 }
 
-func (e *LlamaBackend) LoadModel(path string, gpuLayers int) error {
-	opts := []llama.ModelOption{
-		llama.WithGPULayers(gpuLayers),
-	}
-	if e.cfg.ModelOptions.TensorSplit != "" {
-		opts = append(opts, llama.WithTensorSplit(e.cfg.ModelOptions.TensorSplit))
-	}
+func (e *LlamaBackend) LoadModel(path string, gpus []int) error {
+	opts := []llama.ModelOption{llama.WithGPULayers(-1)}
 	if e.cfg.ModelOptions.MLock {
 		opts = append(opts, llama.WithMLock())
 	}
-
 	model, err := llama.LoadModel(path, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to load model: %w", err)

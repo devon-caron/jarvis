@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
@@ -35,16 +36,16 @@ func (rw *ResponseWriter) Write(resp *protocol.Response) error {
 
 // Handler processes incoming requests and writes responses.
 type Handler struct {
-	Manager  *ModelManager
+	Registry *ModelRegistry
 	Config   *config.Config
 	Searcher search.Searcher
 	StopCh   chan struct{}
 }
 
 // NewHandler creates a Handler with the given dependencies.
-func NewHandler(manager *ModelManager, cfg *config.Config, searcher search.Searcher, stopCh chan struct{}) *Handler {
+func NewHandler(registry *ModelRegistry, cfg *config.Config, searcher search.Searcher, stopCh chan struct{}) *Handler {
 	return &Handler{
-		Manager:  manager,
+		Registry: registry,
 		Config:   cfg,
 		Searcher: searcher,
 		StopCh:   stopCh,
@@ -59,7 +60,7 @@ func (h *Handler) Handle(req *protocol.Request, rw *ResponseWriter) {
 	case protocol.ReqLoad:
 		h.handleLoad(req.Load, rw)
 	case protocol.ReqUnload:
-		h.handleUnload(rw)
+		h.handleUnload(req.Unload, rw)
 	case protocol.ReqStatus:
 		h.handleStatus(rw)
 	case protocol.ReqStop:
@@ -126,7 +127,14 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 		opts.TopK = h.Config.Inference.TopK
 	}
 
-	err := h.Manager.Chat(context.Background(), msgs, opts, func(token string) {
+	// Resolve GPU pointer to int (-1 = not specified).
+	gpu := -1
+	if req.GPU != nil {
+		gpu = *req.GPU
+	}
+
+	// Route to model by name, GPU, or auto-route.
+	err := h.Registry.Chat(context.Background(), req.Model, gpu, msgs, opts, func(token string) {
 		rw.Write(protocol.DeltaResponse(token))
 	})
 	if err != nil {
@@ -143,20 +151,51 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	}
 
 	path := h.Config.ResolveModel(req.ModelPath)
-	gpuLayers := req.GPULayers
-	if gpuLayers == 0 {
-		gpuLayers = h.Config.ModelOptions.GPULayers
+
+	// Determine model name
+	name := req.Name
+	if name == "" {
+		name = req.ModelPath
 	}
 
-	if err := h.Manager.Load(path, gpuLayers); err != nil {
+	// Determine GPUs
+	gpus := req.GPUs
+	if len(gpus) == 0 {
+		gpus = []int{h.Config.DefaultGPU}
+	}
+
+	// Determine timeout
+	var timeout time.Duration
+	if req.Timeout != "" {
+		var err error
+		timeout, err = time.ParseDuration(req.Timeout)
+		if err != nil {
+			rw.Write(protocol.ErrorResponse(fmt.Sprintf("invalid timeout %q: %v", req.Timeout, err)))
+			return
+		}
+	} else if h.Config.DefaultTimeout != "" && h.Config.DefaultTimeout != "0" {
+		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
+	}
+
+	if err := h.Registry.Load(name, path, gpus, timeout); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("failed to load model: %v", err)))
 		return
 	}
 	rw.Write(protocol.OKResponse())
 }
 
-func (h *Handler) handleUnload(rw *ResponseWriter) {
-	if err := h.Manager.Unload(); err != nil {
+func (h *Handler) handleUnload(req *protocol.UnloadRequest, rw *ResponseWriter) {
+	var err error
+	if req != nil && req.GPU != nil {
+		err = h.Registry.UnloadByGPU(*req.GPU)
+	} else {
+		name := ""
+		if req != nil {
+			name = req.Name
+		}
+		err = h.Registry.Unload(name)
+	}
+	if err != nil {
 		rw.Write(protocol.ErrorResponse(err.Error()))
 		return
 	}
@@ -164,13 +203,27 @@ func (h *Handler) handleUnload(rw *ResponseWriter) {
 }
 
 func (h *Handler) handleStatus(rw *ResponseWriter) {
-	loaded, modelStatus := h.Manager.Status()
+	models := h.Registry.Status()
+	loaded := len(models) > 0
+
+	// Backwards compat: populate single-model fields if exactly one model
+	var modelPath string
+	var modelStatus *protocol.ModelStatus
+	if len(models) == 1 {
+		modelPath = models[0].ModelPath
+		modelStatus = &protocol.ModelStatus{
+			ModelPath: models[0].ModelPath,
+			GPUs:      models[0].GPUInfo,
+		}
+	}
+
 	rw.Write(protocol.StatusResponse(&protocol.StatusPayload{
 		Running:     true,
 		ModelLoaded: loaded,
-		ModelPath:   h.Manager.ModelPath(),
+		ModelPath:   modelPath,
 		PID:         os.Getpid(),
 		Model:       modelStatus,
+		Models:      models,
 	}))
 }
 

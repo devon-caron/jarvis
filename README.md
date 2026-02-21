@@ -51,6 +51,14 @@ chmod +x build.sh
 
 The compiled binary and required shared libraries will be placed in `build/bin/`.
 
+### 4. Running tests
+
+Tests that link against llama-go require `LD_LIBRARY_PATH` to be set so the linker can find `libllama.so`:
+
+```bash
+LD_LIBRARY_PATH=/path/to/llama-go/build/bin go test ./...
+```
+
 ## Running
 
 After building, start Jarvis with:

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,60 @@ func TestRunLoad(t *testing.T) {
 	}
 }
 
+func TestRunLoad_WithGPUs(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Load != nil {
+			if len(req.Load.GPUs) != 2 || req.Load.GPUs[0] != 0 || req.Load.GPUs[1] != 1 {
+				fmt.Fprintf(os.Stderr, "expected GPUs=[0,1], got %v\n", req.Load.GPUs)
+			}
+		}
+		writeJSON(conn, protocol.OKResponse())
+	})
+
+	rootCmd.SetArgs([]string{"load", "-g", "0,1", "mymodel"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunLoad_WithTimeout(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Load != nil {
+			if req.Load.Timeout != "30m" {
+				fmt.Fprintf(os.Stderr, "expected timeout=30m, got %q\n", req.Load.Timeout)
+			}
+		}
+		writeJSON(conn, protocol.OKResponse())
+	})
+
+	rootCmd.SetArgs([]string{"load", "-t", "30m", "mymodel"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunLoad_WithPath(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Load != nil {
+			if req.Load.ModelPath != "/inline/model.gguf" {
+				fmt.Fprintf(os.Stderr, "expected path=/inline/model.gguf, got %q\n", req.Load.ModelPath)
+			}
+		}
+		writeJSON(conn, protocol.OKResponse())
+	})
+
+	rootCmd.SetArgs([]string{"load", "-p", "/inline/model.gguf"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
 func TestRunUnload(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -109,7 +164,26 @@ func TestRunUnload(t *testing.T) {
 	}
 }
 
+func TestRunUnload_WithName(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Unload != nil {
+			if req.Unload.Name != "mymodel" {
+				fmt.Fprintf(os.Stderr, "expected name=mymodel, got %q\n", req.Unload.Name)
+			}
+		}
+		writeJSON(conn, protocol.OKResponse())
+	})
+
+	rootCmd.SetArgs([]string{"unload", "mymodel"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
 func TestRunStatus_WithModel(t *testing.T) {
+	now := time.Now()
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
@@ -122,6 +196,14 @@ func TestRunStatus_WithModel(t *testing.T) {
 				GPULayers: 80,
 				GPUs: []protocol.GPUInfo{
 					{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
+				},
+			},
+			Models: []protocol.SlotInfo{
+				{
+					Name:      "test",
+					ModelPath: "/model.gguf",
+					GPUs:      []int{0},
+					LastUsed:  now,
 				},
 			},
 		}))
@@ -248,7 +330,195 @@ func TestRunChat_WithFlags(t *testing.T) {
 		writeJSON(conn, protocol.DoneResponse())
 	})
 
-	rootCmd.SetArgs([]string{"-n", "100", "-t", "0.5", "test prompt"})
+	rootCmd.SetArgs([]string{"-n", "100", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunChat_WithModelFlag(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Chat != nil {
+			if req.Chat.Model != "llama70b" {
+				fmt.Fprintf(os.Stderr, "expected model=llama70b, got %q\n", req.Chat.Model)
+			}
+		}
+		writeJSON(conn, protocol.DeltaResponse("test"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-m", "llama70b", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunChat_BatchMode(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		scanReq(conn)
+		writeJSON(conn, protocol.DeltaResponse("Hello!"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-b", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunChat_WebSearchFlag(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Chat != nil && !req.Chat.WebSearch {
+			fmt.Fprintf(os.Stderr, "expected web_search=true\n")
+		}
+		writeJSON(conn, protocol.DeltaResponse("test"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-w", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunChat_SystemPromptFlag(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Chat != nil && req.Chat.SystemPrompt != "Be terse" {
+			fmt.Fprintf(os.Stderr, "expected system_prompt='Be terse'\n")
+		}
+		writeJSON(conn, protocol.DeltaResponse("ok"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-s", "Be terse", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunChat_TemperatureFlag(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		scanReq(conn)
+		writeJSON(conn, protocol.DeltaResponse("ok"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-t", "0.5", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunRegister(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Create a fake model file to pass path validation
+	modelPath := filepath.Join(dir, "model.gguf")
+	os.WriteFile(modelPath, []byte("fake"), 0644)
+
+	rootCmd.SetArgs([]string{"register", "-p", modelPath, "mymodel"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Verify the config was saved
+	cfgPath := filepath.Join(dir, "jarvis", "config.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("config file should exist: %v", err)
+	}
+	if !strings.Contains(string(data), "mymodel") {
+		t.Errorf("config should contain model name, got: %s", string(data))
+	}
+}
+
+func TestRunRegister_BadPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	rootCmd.SetArgs([]string{"register", "-p", "/nonexistent/model.gguf", "mymodel"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error for nonexistent model path")
+	}
+}
+
+func TestRunLoad_NoArgs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	rootCmd.SetArgs([]string{"load"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error when no model name or path given")
+	}
+}
+
+func TestRunStatus_OldFormat(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		scanReq(conn)
+		// Old single-model format (no Models slice)
+		writeJSON(conn, protocol.StatusResponse(&protocol.StatusPayload{
+			Running:     true,
+			ModelLoaded: true,
+			ModelPath:   "/model.gguf",
+			PID:         12345,
+			Model: &protocol.ModelStatus{
+				GPULayers: 80,
+				GPUs: []protocol.GPUInfo{
+					{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
+				},
+			},
+		}))
+	})
+
+	rootCmd.SetArgs([]string{"status"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunStatus_MultiModel(t *testing.T) {
+	now := time.Now()
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		scanReq(conn)
+		writeJSON(conn, protocol.StatusResponse(&protocol.StatusPayload{
+			Running:     true,
+			ModelLoaded: true,
+			PID:         12345,
+			Models: []protocol.SlotInfo{
+				{
+					Name:      "m1",
+					ModelPath: "/m1.gguf",
+					GPUs:      []int{0},
+					Timeout:   "30m0s",
+					LastUsed:  now,
+					GPUInfo: []protocol.GPUInfo{
+						{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
+					},
+				},
+				{
+					Name:      "m2",
+					ModelPath: "/m2.gguf",
+					GPUs:      []int{1},
+					LastUsed:  now,
+				},
+			},
+		}))
+	})
+
+	rootCmd.SetArgs([]string{"status"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -9,23 +11,63 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
-var loadGPULayers int
+var (
+	loadGPUs    string
+	loadPath    string
+	loadTimeout string
+)
 
 var loadCmd = &cobra.Command{
-	Use:   "load <model-path-or-alias>",
+	Use:   "load [flags] <model-name>",
 	Short: "Load a model into VRAM",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runLoad,
+	Long: `Load a model by registered name or inline path.
+
+Examples:
+  jarvis load llama70b                    # load by name onto default GPU
+  jarvis load -g 0,1 llama70b            # split across GPUs 0 and 1
+  jarvis load -p /path/to/model.gguf     # load by path
+  jarvis load -g 0 -t 30m llama70b       # load with 30min timeout`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runLoad,
 }
 
 func init() {
-	loadCmd.Flags().IntVarP(&loadGPULayers, "gpu-layers", "g", -1, "Number of layers to offload to GPU (-1 for all)")
+	loadCmd.Flags().StringVarP(&loadGPUs, "gpus", "g", "", "GPU device IDs (e.g. \"0\" or \"0,1\")")
+	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
+	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
 	rootCmd.AddCommand(loadCmd)
 }
 
 func runLoad(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
-	modelPath := args[0]
+
+	var modelName string
+	var modelPath string
+
+	if loadPath != "" {
+		modelPath = loadPath
+		if len(args) > 0 {
+			modelName = args[0]
+		}
+	} else if len(args) > 0 {
+		modelName = args[0]
+		modelPath = args[0] // daemon will resolve alias
+	} else {
+		return fmt.Errorf("must specify a model name or --path")
+	}
+
+	// Parse GPU list
+	var gpus []int
+	if loadGPUs != "" {
+		for _, s := range strings.Split(loadGPUs, ",") {
+			s = strings.TrimSpace(s)
+			id, err := strconv.Atoi(s)
+			if err != nil {
+				return fmt.Errorf("invalid GPU ID %q: %w", s, err)
+			}
+			gpus = append(gpus, id)
+		}
+	}
 
 	c, err := client.Connect()
 	if err != nil {
@@ -39,7 +81,9 @@ func runLoad(cmd *cobra.Command, args []string) error {
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{
 			ModelPath: modelPath,
-			GPULayers: loadGPULayers,
+			Name:      modelName,
+			GPUs:      gpus,
+			Timeout:   loadTimeout,
 		},
 	}
 

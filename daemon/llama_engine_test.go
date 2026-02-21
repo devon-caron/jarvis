@@ -7,6 +7,7 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
+
 func TestNewLlamaBackend(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewLlamaBackend(cfg)
@@ -49,7 +50,7 @@ func TestLlamaBackend_GetStatus_WhenNil(t *testing.T) {
 
 func TestLlamaBackend_LoadModel_BadPath(t *testing.T) {
 	b := NewLlamaBackend(config.Defaults())
-	err := b.LoadModel("/nonexistent/model.gguf", -1)
+	err := b.LoadModel("/nonexistent/model.gguf", []int{0})
 	if err == nil {
 		t.Error("LoadModel should error for nonexistent file")
 	}
@@ -58,12 +59,11 @@ func TestLlamaBackend_LoadModel_BadPath(t *testing.T) {
 	}
 }
 
-func TestLlamaBackend_LoadModel_BadPath_WithOptions(t *testing.T) {
+func TestLlamaBackend_LoadModel_BadPath_MultiGPU(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.ModelOptions.TensorSplit = "0.5,0.5"
 	cfg.ModelOptions.MLock = true
 	b := NewLlamaBackend(cfg)
-	err := b.LoadModel("/nonexistent/model.gguf", 40)
+	err := b.LoadModel("/nonexistent/model.gguf", []int{0, 1})
 	if err == nil {
 		t.Error("LoadModel should error for nonexistent file")
 	}
