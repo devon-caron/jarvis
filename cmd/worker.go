@@ -55,7 +55,7 @@ func runWorker(cmd *cobra.Command, args []string) error {
 
 	// Load the model; CUDA_VISIBLE_DEVICES already restricts which GPUs are visible.
 	if err := registry.Load(name, workerPath, nil, 0); err != nil {
-		return fmt.Errorf("failed to load model: %w", err)
+		return fmt.Errorf("worker failed to load model: %v", err)
 	}
 
 	// Signal readiness to the parent via fd 3.

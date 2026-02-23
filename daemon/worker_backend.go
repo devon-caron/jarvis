@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -78,6 +80,9 @@ func (w *WorkerBackend) LoadModel(path string, gpus []int) error {
 	cmd.Env = append(os.Environ(), "CUDA_VISIBLE_DEVICES="+cudaDevices)
 	cmd.ExtraFiles = []*os.File{wPipe} // fd 3
 
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(&stderrBuf, log.Writer())
+
 	if err := cmd.Start(); err != nil {
 		rPipe.Close()
 		wPipe.Close()
@@ -106,15 +111,21 @@ func (w *WorkerBackend) LoadModel(path string, gpus []int) error {
 	}()
 
 	select {
-	case err := <-ready:
-		if err != nil {
+	case readyErr := <-ready:
+		if readyErr != nil {
 			cmd.Process.Kill()
-			cmd.Wait()
-			return err
+			cmd.Wait() // flush stderr before reading stderrBuf
+			if msg := workerErrorMsg(stderrBuf.String()); msg != "" {
+				return fmt.Errorf("worker failed: %s", msg)
+			}
+			return readyErr
 		}
 	case <-time.After(workerReadyTimeout):
 		cmd.Process.Kill()
 		cmd.Wait()
+		if msg := workerErrorMsg(stderrBuf.String()); msg != "" {
+			return fmt.Errorf("worker startup timed out after %s; last output: %s", workerReadyTimeout, msg)
+		}
 		return fmt.Errorf("worker did not become ready within %s", workerReadyTimeout)
 	}
 
@@ -123,6 +134,23 @@ func (w *WorkerBackend) LoadModel(path string, gpus []int) error {
 	w.process = cmd
 	w.loaded = true
 	return nil
+}
+
+// workerErrorMsg extracts the most useful line from worker stderr.
+// Cobra prefixes returned errors with "Error: "; this strips that prefix.
+func workerErrorMsg(stderr string) string {
+	s := strings.TrimSpace(stderr)
+	if s == "" {
+		return ""
+	}
+	// Take the last non-empty line (most specific in a wrapped error chain).
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return strings.TrimPrefix(line, "Error: ")
+		}
+	}
+	return strings.TrimPrefix(s, "Error: ")
 }
 
 // UnloadModel sends a stop request to the worker, waits for it to exit, and

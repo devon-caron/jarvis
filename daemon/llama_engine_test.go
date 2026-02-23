@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/devon-caron/jarvis/config"
@@ -54,6 +57,9 @@ func TestLlamaBackend_LoadModel_BadPath(t *testing.T) {
 	if err == nil {
 		t.Error("LoadModel should error for nonexistent file")
 	}
+	if !strings.Contains(err.Error(), "model file not found") {
+		t.Errorf("expected 'model file not found' error, got: %v", err)
+	}
 	if b.IsLoaded() {
 		t.Error("should not be loaded after error")
 	}
@@ -75,4 +81,66 @@ func TestLlamaBackend_RunChat_WhenNil(t *testing.T) {
 	if err == nil {
 		t.Error("RunChat should error when no model loaded")
 	}
+}
+
+func TestValidateGGUF(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name    string
+		content []byte
+		wantErr string
+	}{
+		{
+			name:    "valid v3 header",
+			content: append([]byte("GGUF"), 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+			wantErr: "",
+		},
+		{
+			name:    "valid v2 header",
+			content: append([]byte("GGUF"), 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+			wantErr: "",
+		},
+		{
+			name:    "bad magic",
+			content: append([]byte("NOPE"), 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+			wantErr: "not a valid GGUF model file",
+		},
+		{
+			name:    "unsupported version",
+			content: append([]byte("GGUF"), 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+			wantErr: "unsupported GGUF version",
+		},
+		{
+			name:    "too small",
+			content: []byte("GGU"),
+			wantErr: "file too small",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, tc.name+".gguf")
+			os.WriteFile(path, tc.content, 0644)
+			err := validateGGUF(path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tc.wantErr, err)
+				}
+			}
+		})
+	}
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		err := validateGGUF("/nonexistent/file.gguf")
+		if err == nil || !strings.Contains(err.Error(), "model file not found") {
+			t.Errorf("expected 'model file not found', got: %v", err)
+		}
+	})
 }

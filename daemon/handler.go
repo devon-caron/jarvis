@@ -178,7 +178,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	}
 
 	if err := h.Registry.Load(name, path, gpus, timeout); err != nil {
-		rw.Write(protocol.ErrorResponse(fmt.Sprintf("failed to load model: %v", err)))
+		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}
 	rw.Write(protocol.OKResponse())
