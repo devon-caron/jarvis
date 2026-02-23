@@ -78,3 +78,42 @@ func TestWorkerBackend_LoadModel_BadPath(t *testing.T) {
 		t.Errorf("expected error to mention the underlying cause, got: %q", got)
 	}
 }
+
+func TestIsVRAMError(t *testing.T) {
+	tests := []struct {
+		name   string
+		stderr string
+		want   bool
+	}{
+		{"empty", "", false},
+		{"unrelated error", "Error: failed to load model: bad file\n", false},
+		{
+			"cudaMalloc OOM",
+			"ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1024.00 MiB on device 0: cudaMalloc failed: out of memory\nError: failed to load\n",
+			true,
+		},
+		{
+			"generic out of memory",
+			"some context\nout of memory\nError: load failed\n",
+			true,
+		},
+		{
+			"failed to allocate buffer",
+			"alloc_tensor_range: failed to allocate CUDA0 buffer of size 2147483648\nError: load failed\n",
+			true,
+		},
+		{
+			"case insensitive",
+			"CUDAMALLOC FAILED: OUT OF MEMORY\n",
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isVRAMError(tc.stderr)
+			if got != tc.want {
+				t.Errorf("isVRAMError(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

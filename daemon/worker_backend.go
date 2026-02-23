@@ -115,7 +115,11 @@ func (w *WorkerBackend) LoadModel(path string, gpus []int) error {
 		if readyErr != nil {
 			cmd.Process.Kill()
 			cmd.Wait() // flush stderr before reading stderrBuf
-			if msg := workerErrorMsg(stderrBuf.String()); msg != "" {
+			stderr := stderrBuf.String()
+			if isVRAMError(stderr) {
+				return fmt.Errorf("not enough VRAM to load model: %s", path)
+			}
+			if msg := workerErrorMsg(stderr); msg != "" {
 				return fmt.Errorf("worker failed: %s", msg)
 			}
 			return readyErr
@@ -123,7 +127,11 @@ func (w *WorkerBackend) LoadModel(path string, gpus []int) error {
 	case <-time.After(workerReadyTimeout):
 		cmd.Process.Kill()
 		cmd.Wait()
-		if msg := workerErrorMsg(stderrBuf.String()); msg != "" {
+		stderr := stderrBuf.String()
+		if isVRAMError(stderr) {
+			return fmt.Errorf("not enough VRAM to load model: %s", path)
+		}
+		if msg := workerErrorMsg(stderr); msg != "" {
 			return fmt.Errorf("worker startup timed out after %s; last output: %s", workerReadyTimeout, msg)
 		}
 		return fmt.Errorf("worker did not become ready within %s", workerReadyTimeout)
@@ -151,6 +159,26 @@ func workerErrorMsg(stderr string) string {
 		}
 	}
 	return strings.TrimPrefix(s, "Error: ")
+}
+
+// vramErrorPatterns are substrings emitted by llama.cpp / CUDA to stderr when
+// GPU memory allocation fails during model loading.
+var vramErrorPatterns = []string{
+	"cudaMalloc failed",
+	"out of memory",
+	"failed to allocate",
+}
+
+// isVRAMError scans worker stderr for CUDA/GPU out-of-memory indicators
+// that llama.cpp prints when the model doesn't fit in VRAM.
+func isVRAMError(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	for _, p := range vramErrorPatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // UnloadModel sends a stop request to the worker, waits for it to exit, and
