@@ -150,7 +150,23 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		return
 	}
 
-	path := h.Config.ResolveModel(req.ModelPath)
+	// Resolve model path: ModelPath is a direct file path (-p flag),
+	// Name is a registry lookup (positional arg).
+	var path string
+	if req.ModelPath != "" {
+		path = req.ModelPath
+	} else if req.Name != "" {
+		resolved, ok := h.Config.Models[req.Name]
+		if !ok {
+			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
+				"model %q not found in registry; use 'jarvis register' to add it or '-p' to load by path", req.Name)))
+			return
+		}
+		path = resolved
+	} else {
+		rw.Write(protocol.ErrorResponse("must specify a model name or path"))
+		return
+	}
 
 	// Determine model name
 	name := req.Name

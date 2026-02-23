@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +22,7 @@ var (
 	temperature  float64
 	modelFlag    string
 	gpuFlag      int
+	statsFlag    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -34,12 +37,13 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Flags().BoolVarP(&webSearch, "web", "w", false, "Augment prompt with web search results")
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
-	rootCmd.Flags().StringVarP(&systemPrompt, "system", "s", "", "Override system prompt")
+	rootCmd.Flags().StringVar(&systemPrompt, "system", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
 	rootCmd.Flags().IntVarP(&contextSize, "context-size", "c", 8192, "Context window size in tokens (default 8192)")
 	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
 	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
 	rootCmd.Flags().IntVarP(&gpuFlag, "gpu", "g", -1, "Route to whichever model is loaded on this GPU")
+	rootCmd.Flags().BoolVarP(&statsFlag, "stats", "s", false, "Show tokens per second along with other statistics")
 }
 
 // Execute runs the root command.
@@ -93,10 +97,20 @@ func runChat(cmd *cobra.Command, args []string) error {
 
 	// _ = cfg // config loaded for potential future use
 
+	tokenCount := 0
+	startInclTtft := time.Now()
+	var start time.Time
+	var durInclTtft, dur, ttft time.Duration
+	var once sync.Once
 	if batchMode {
 		var buf strings.Builder
 		err = c.StreamChat(req, func(token string) {
+			once.Do(func() {
+				ttft = time.Since(startInclTtft)
+				start = time.Now()
+			})
 			buf.WriteString(token)
+			tokenCount++
 		})
 		if err != nil {
 			return err
@@ -104,12 +118,37 @@ func runChat(cmd *cobra.Command, args []string) error {
 		fmt.Print(buf.String())
 	} else {
 		err = c.StreamChat(req, func(token string) {
+			once.Do(func() {
+				ttft = time.Since(startInclTtft)
+				start = time.Now()
+			})
 			fmt.Print(token)
+			tokenCount++
 		})
 		if err != nil {
 			return err
 		}
 		fmt.Println()
 	}
+
+	dur = time.Since(start)
+	durInclTtft = time.Since(startInclTtft)
+
+	if statsFlag {
+		tokensPerSec := float64(tokenCount) / float64(dur.Seconds())
+		effTokensPerSec := float64(tokenCount) / float64(durInclTtft.Seconds())
+		fmt.Println()
+		fmt.Println()
+		fmt.Printf("╔═══════════════════════════════════════════════════════════════════╗\n")
+		fmt.Printf("║                         STATISTICS REPORT                         ║\n")
+		fmt.Printf("╠═══════════════════════════════════════════════════════════════════╝\n")
+		fmt.Printf("║ • Tokens Per Second (Raw):       %12.2f tok/s\n", tokensPerSec)
+		fmt.Printf("║ • Effective Tokens Per Second:   %12.2f tok/s (incl. TTFT)\n", effTokensPerSec)
+		fmt.Printf("║ • Time to First Token (TTFT):    %12.3f s\n", ttft.Seconds())
+		fmt.Printf("║ • Response Elapsed Time:         %12.3f s\n", dur.Seconds())
+		fmt.Printf("║ • Total Tokens Generated:        %12d tok\n", tokenCount)
+		fmt.Printf("╚═══════════════════════════════════════════════════════════════════╝\n\n")
+	}
+
 	return nil
 }

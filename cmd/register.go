@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -29,9 +30,15 @@ func runRegister(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 	name := args[0]
 
-	// Validate that path exists on disk
-	if _, err := os.Stat(registerPath); err != nil {
-		return fmt.Errorf("model path does not exist: %s", registerPath)
+	// Resolve to absolute path so the daemon (different cwd) can find the file.
+	absPath, err := filepath.Abs(registerPath)
+	if err != nil {
+		return fmt.Errorf("invalid path %q: %w", registerPath, err)
+	}
+
+	// Validate that the file exists on disk.
+	if _, err := os.Stat(absPath); err != nil {
+		return fmt.Errorf("model path does not exist: %s", absPath)
 	}
 
 	cfgPath := internal.ConfigPath()
@@ -40,12 +47,12 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, registerPath)
+	cfg.AddModel(name, absPath)
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("Registered model %q -> %s\n", name, registerPath)
+	fmt.Printf("Registered model %q -> %s\n", name, absPath)
 	return nil
 }
