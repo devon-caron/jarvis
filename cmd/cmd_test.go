@@ -397,7 +397,7 @@ func TestRunChat_SystemPromptFlag(t *testing.T) {
 		writeJSON(conn, protocol.DoneResponse())
 	})
 
-	rootCmd.SetArgs([]string{"-s", "Be terse", "test prompt"})
+	rootCmd.SetArgs([]string{"--system", "Be terse", "test prompt"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

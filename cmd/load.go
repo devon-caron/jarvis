@@ -51,7 +51,6 @@ func runLoad(cmd *cobra.Command, args []string) error {
 		}
 	} else if len(args) > 0 {
 		modelName = args[0]
-		modelPath = args[0] // daemon will resolve alias
 	} else {
 		return fmt.Errorf("must specify a model name or --path")
 	}
@@ -75,7 +74,11 @@ func runLoad(cmd *cobra.Command, args []string) error {
 	}
 	defer c.Close()
 
-	fmt.Printf("Loading model: %s\n", modelPath)
+	if modelPath != "" {
+		fmt.Printf("Loading model: %s\n", modelPath)
+	} else {
+		fmt.Printf("Loading model: %s\n", modelName)
+	}
 
 	req := &protocol.Request{
 		Type: protocol.ReqLoad,
