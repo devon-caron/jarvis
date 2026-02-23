@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
@@ -22,17 +25,64 @@ func NewLlamaBackend(cfg *config.Config) *LlamaBackend {
 }
 
 func (e *LlamaBackend) LoadModel(path string, gpus []int) error {
+	if err := validateGGUF(path); err != nil {
+		return err
+	}
+
 	opts := []llama.ModelOption{llama.WithGPULayers(-1)}
 	if e.cfg.ModelOptions.MLock {
 		opts = append(opts, llama.WithMLock())
 	}
 	model, err := llama.LoadModel(path, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to load model: %w", err)
+		return classifyLoadError(path, err)
 	}
 	e.model = model
 	e.path = path
 	return nil
+}
+
+// validateGGUF performs fast pre-checks on a model file before handing it to
+// the llama library. It catches missing files, non-GGUF files, and
+// unsupported GGUF versions early with clear error messages.
+func validateGGUF(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("model file not found: %s", path)
+		}
+		return fmt.Errorf("cannot open model file: %w", err)
+	}
+	defer f.Close()
+
+	// GGUF header: magic(4) + version(4) + tensor_count(8) + metadata_kv_count(8) = 24 bytes
+	var header [24]byte
+	if _, err := io.ReadFull(f, header[:]); err != nil {
+		return fmt.Errorf("file too small to be a valid GGUF model: %s", path)
+	}
+
+	if string(header[0:4]) != "GGUF" {
+		return fmt.Errorf("not a valid GGUF model file: %s", path)
+	}
+
+	version := binary.LittleEndian.Uint32(header[4:8])
+	if version < 2 || version > 3 {
+		return fmt.Errorf("unsupported GGUF version %d: %s", version, path)
+	}
+
+	return nil
+}
+
+// classifyLoadError adds diagnostic context when the llama library returns a
+// generic load failure. It re-checks the file so the error message tells the
+// user whether the problem is corruption, truncation, or something else.
+func classifyLoadError(path string, original error) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("model file not found: %s", path)
+	}
+	sizeMB := float64(info.Size()) / (1024 * 1024)
+	return fmt.Errorf("failed to load model (file may be corrupt or truncated): %s (%.1f MB): %w", path, sizeMB, original)
 }
 
 func (e *LlamaBackend) UnloadModel() error {
