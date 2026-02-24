@@ -20,10 +20,18 @@ var registerCmd = &cobra.Command{
 	RunE:  runRegister,
 }
 
+var unregisterCmd = &cobra.Command{
+	Use:   "unregister <name>",
+	Short: "Remove a named model alias from config",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runUnregister,
+}
+
 func init() {
 	registerCmd.Flags().StringVarP(&registerPath, "path", "p", "", "Path to the model file (required)")
 	registerCmd.MarkFlagRequired("path")
-	rootCmd.AddCommand(registerCmd)
+	modelsCmd.AddCommand(registerCmd)
+	modelsCmd.AddCommand(unregisterCmd)
 }
 
 func runRegister(cmd *cobra.Command, args []string) error {
@@ -54,5 +62,27 @@ func runRegister(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Registered model %q -> %s\n", name, absPath)
+	return nil
+}
+
+func runUnregister(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+	name := args[0]
+
+	cfgPath := internal.ConfigPath()
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if !cfg.RemoveModel(name) {
+		return fmt.Errorf("model %q not found in registry", name)
+	}
+
+	if err := cfg.Save(cfgPath); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Printf("Unregistered model %q\n", name)
 	return nil
 }
