@@ -156,10 +156,15 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	if req.ModelPath != "" {
 		path = req.ModelPath
 	} else if req.Name != "" {
+		// Reload config from disk so newly registered models are visible.
+		cfg, err := config.Load()
+		if err == nil {
+			h.Config = cfg
+		}
 		resolved, ok := h.Config.Models[req.Name]
 		if !ok {
 			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
-				"model %q not found in registry; use 'jarvis register' to add it or '-p' to load by path", req.Name)))
+				"model %q not found in registry; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
 			return
 		}
 		path = resolved

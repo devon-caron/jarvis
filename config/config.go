@@ -161,3 +161,12 @@ func (c *Config) AddModel(name, path string) {
 	}
 	c.Models[name] = path
 }
+
+// RemoveModel deletes a named model alias. Returns false if the name was not found.
+func (c *Config) RemoveModel(name string) bool {
+	if _, ok := c.Models[name]; !ok {
+		return false
+	}
+	delete(c.Models, name)
+	return true
+}

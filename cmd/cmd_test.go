@@ -425,7 +425,7 @@ func TestRunRegister(t *testing.T) {
 	modelPath := filepath.Join(dir, "model.gguf")
 	os.WriteFile(modelPath, []byte("fake"), 0644)
 
-	rootCmd.SetArgs([]string{"register", "-p", modelPath, "mymodel"})
+	rootCmd.SetArgs([]string{"models", "register", "-p", modelPath, "mymodel"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -441,11 +441,43 @@ func TestRunRegister(t *testing.T) {
 	}
 }
 
+func TestRunUnregister(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Create a config with a model
+	cfgDir := filepath.Join(dir, "jarvis")
+	os.MkdirAll(cfgDir, 0755)
+	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("models:\n  mymodel: /path/to/model.gguf\n"), 0644)
+
+	rootCmd.SetArgs([]string{"models", "unregister", "mymodel"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Verify the model was removed
+	data, _ := os.ReadFile(filepath.Join(cfgDir, "config.yaml"))
+	if strings.Contains(string(data), "mymodel") {
+		t.Errorf("config should not contain model name after unregister, got: %s", string(data))
+	}
+}
+
+func TestRunUnregister_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	rootCmd.SetArgs([]string{"models", "unregister", "nonexistent"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error for nonexistent model")
+	}
+}
+
 func TestRunRegister_BadPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	rootCmd.SetArgs([]string{"register", "-p", "/nonexistent/model.gguf", "mymodel"})
+	rootCmd.SetArgs([]string{"models", "register", "-p", "/nonexistent/model.gguf", "mymodel"})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Error("expected error for nonexistent model path")
@@ -519,6 +551,32 @@ func TestRunStatus_MultiModel(t *testing.T) {
 	})
 
 	rootCmd.SetArgs([]string{"status"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunModelsLs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Create a config with some models
+	cfgDir := filepath.Join(dir, "jarvis")
+	os.MkdirAll(cfgDir, 0755)
+	cfgContent := "models:\n  llama70b: /path/to/llama70b.gguf\n  gemma12b: /path/to/gemma12b.gguf\n"
+	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(cfgContent), 0644)
+
+	rootCmd.SetArgs([]string{"models", "ls"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRunModelsLs_Empty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	rootCmd.SetArgs([]string{"models", "ls"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
