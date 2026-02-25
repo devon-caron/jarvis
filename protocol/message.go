@@ -43,11 +43,12 @@ type ChatRequest struct {
 
 // LoadRequest holds the payload for a model load request.
 type LoadRequest struct {
-	ModelPath string `json:"model_path"`
-	Name      string `json:"name,omitempty"`
-	GPUs      []int  `json:"gpus,omitempty"`
-	GPULayers int    `json:"gpu_layers"`
-	Timeout   string `json:"timeout,omitempty"`
+	ModelPath   string `json:"model_path"`
+	Name        string `json:"name,omitempty"`
+	GPUs        []int  `json:"gpus,omitempty"`
+	GPULayers   int    `json:"gpu_layers"`
+	Timeout     string `json:"timeout,omitempty"`
+	ContextSize int    `json:"context_size,omitempty"`
 }
 
 // UnloadRequest holds the payload for a model unload request.

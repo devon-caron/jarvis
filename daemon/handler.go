@@ -111,9 +111,6 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 
 	// Merge inference opts with config defaults
 	opts := req.Opts
-	if opts.ContextSize == 0 {
-		opts.ContextSize = h.Config.Inference.ContextSize
-	}
 	if opts.MaxTokens == 0 {
 		opts.MaxTokens = h.Config.Inference.MaxTokens
 	}
@@ -150,9 +147,10 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		return
 	}
 
-	// Resolve model path: ModelPath is a direct file path (-p flag),
-	// Name is a registry lookup (positional arg).
+	// Resolve model path and context size.
+	// ModelPath is a direct file path (-p flag), Name is a registry lookup.
 	var path string
+	var contextSize int
 	if req.ModelPath != "" {
 		path = req.ModelPath
 	} else if req.Name != "" {
@@ -161,16 +159,26 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		if err == nil {
 			h.Config = cfg
 		}
-		resolved, ok := h.Config.Models[req.Name]
+		entry, ok := h.Config.Models[req.Name]
 		if !ok {
 			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
 				"model %q not found in registry; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
 			return
 		}
-		path = resolved
+		path = entry.Path
+		contextSize = entry.ContextSize
 	} else {
 		rw.Write(protocol.ErrorResponse("must specify a model name or path"))
 		return
+	}
+
+	// Request-level context size overrides the registry entry.
+	if req.ContextSize > 0 {
+		contextSize = req.ContextSize
+	}
+	// Fall back to global default if still unset.
+	if contextSize == 0 {
+		contextSize = h.Config.Inference.ContextSize
 	}
 
 	// Determine model name
@@ -198,7 +206,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout); err != nil {
+	if err := h.Registry.Load(name, path, gpus, timeout, contextSize); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

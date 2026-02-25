@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	loadGPUs    string
-	loadPath    string
-	loadTimeout string
+	loadGPUs        string
+	loadPath        string
+	loadTimeout     string
+	loadContextSize int
 )
 
 var loadCmd = &cobra.Command{
@@ -35,6 +36,7 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadGPUs, "gpus", "g", "", "GPU device IDs (e.g. \"0\" or \"0,1\")")
 	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
+	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
 	rootCmd.AddCommand(loadCmd)
 }
 
@@ -74,19 +76,24 @@ func runLoad(cmd *cobra.Command, args []string) error {
 	}
 	defer c.Close()
 
+	displayName := modelName
 	if modelPath != "" {
-		fmt.Printf("Loading model: %s\n", modelPath)
+		displayName = modelPath
+	}
+	if loadContextSize > 0 {
+		fmt.Printf("Loading model: %s (context: %d)\n", displayName, loadContextSize)
 	} else {
-		fmt.Printf("Loading model: %s\n", modelName)
+		fmt.Printf("Loading model: %s\n", displayName)
 	}
 
 	req := &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{
-			ModelPath: modelPath,
-			Name:      modelName,
-			GPUs:      gpus,
-			Timeout:   loadTimeout,
+			ModelPath:   modelPath,
+			Name:        modelName,
+			GPUs:        gpus,
+			Timeout:     loadTimeout,
+			ContextSize: loadContextSize,
 		},
 	}
 

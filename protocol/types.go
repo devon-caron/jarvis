@@ -10,7 +10,6 @@ type ChatMessage struct {
 
 // InferenceOpts holds inference parameters for chat requests.
 type InferenceOpts struct {
-	ContextSize int     `json:"context_size,omitempty"`
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
 	TopP        float64 `json:"top_p,omitempty"`

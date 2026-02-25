@@ -45,8 +45,8 @@ func Run() error {
 
 	log.Printf("jarvis daemon starting (pid=%d)", os.Getpid())
 
-	// Create model registry with factory for worker backends
-	registry := NewModelRegistry(cfg, NewWorkerBackend)
+	// Create model registry with llama-server backend factory
+	registry := NewModelRegistry(cfg, NewLlamaServerBackend)
 	defer registry.Shutdown()
 
 	// Set up search
@@ -69,17 +69,25 @@ func Run() error {
 
 	// Auto-load default model if configured
 	if cfg.DefaultModel != "" {
-		modelPath := cfg.ResolveModel(cfg.DefaultModel)
-		gpus := []int{cfg.DefaultGPU}
-		var timeout time.Duration
-		if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
-			timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
-		}
-		log.Printf("auto-loading default model: %s", modelPath)
-		if err := registry.Load(cfg.DefaultModel, modelPath, gpus, timeout); err != nil {
-			log.Printf("warning: failed to auto-load model: %v", err)
+		entry, ok := cfg.ResolveModel(cfg.DefaultModel)
+		if !ok {
+			log.Printf("warning: default model %q not found in registry", cfg.DefaultModel)
 		} else {
-			log.Printf("default model loaded successfully")
+			gpus := []int{cfg.DefaultGPU}
+			var timeout time.Duration
+			if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
+				timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
+			}
+			contextSize := entry.ContextSize
+			if contextSize == 0 {
+				contextSize = cfg.Inference.ContextSize
+			}
+			log.Printf("auto-loading default model: %s (context: %d)", entry.Path, contextSize)
+			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize); err != nil {
+				log.Printf("warning: failed to auto-load model: %v", err)
+			} else {
+				log.Printf("default model loaded successfully")
+			}
 		}
 	}
 

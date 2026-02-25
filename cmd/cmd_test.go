@@ -425,7 +425,7 @@ func TestRunRegister(t *testing.T) {
 	modelPath := filepath.Join(dir, "model.gguf")
 	os.WriteFile(modelPath, []byte("fake"), 0644)
 
-	rootCmd.SetArgs([]string{"models", "register", "-p", modelPath, "mymodel"})
+	rootCmd.SetArgs([]string{"models", "register", "mymodel", modelPath})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestRunUnregister(t *testing.T) {
 	// Create a config with a model
 	cfgDir := filepath.Join(dir, "jarvis")
 	os.MkdirAll(cfgDir, 0755)
-	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("models:\n  mymodel: /path/to/model.gguf\n"), 0644)
+	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("models:\n  mymodel:\n    path: /path/to/model.gguf\n"), 0644)
 
 	rootCmd.SetArgs([]string{"models", "unregister", "mymodel"})
 	if err := rootCmd.Execute(); err != nil {
@@ -477,7 +477,7 @@ func TestRunRegister_BadPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	rootCmd.SetArgs([]string{"models", "register", "-p", "/nonexistent/model.gguf", "mymodel"})
+	rootCmd.SetArgs([]string{"models", "register", "mymodel", "/nonexistent/model.gguf"})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Error("expected error for nonexistent model path")
@@ -563,7 +563,7 @@ func TestRunModelsLs(t *testing.T) {
 	// Create a config with some models
 	cfgDir := filepath.Join(dir, "jarvis")
 	os.MkdirAll(cfgDir, 0755)
-	cfgContent := "models:\n  llama70b: /path/to/llama70b.gguf\n  gemma12b: /path/to/gemma12b.gguf\n"
+	cfgContent := "models:\n  llama70b:\n    path: /path/to/llama70b.gguf\n    context_size: 16384\n  gemma12b:\n    path: /path/to/gemma12b.gguf\n"
 	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(cfgContent), 0644)
 
 	rootCmd.SetArgs([]string{"models", "ls"})
