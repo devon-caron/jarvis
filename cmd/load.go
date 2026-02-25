@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	loadGPUs    string
-	loadPath    string
-	loadTimeout string
+	loadGPUs         string
+	loadPath         string
+	loadTimeout      string
+	loadNVLink       bool
+	loadEnforceEager bool
 )
 
 var loadCmd = &cobra.Command{
@@ -35,6 +37,8 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadGPUs, "gpus", "g", "", "GPU device IDs (e.g. \"0\" or \"0,1\")")
 	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
+	loadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism across GPUs")
+	loadCmd.Flags().BoolVarP(&loadEnforceEager, "enforce-eager", "e", false, "Disable CUDA graph capturing for faster model loading")
 	rootCmd.AddCommand(loadCmd)
 }
 
@@ -83,10 +87,12 @@ func runLoad(cmd *cobra.Command, args []string) error {
 	req := &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{
-			ModelPath: modelPath,
-			Name:      modelName,
-			GPUs:      gpus,
-			Timeout:   loadTimeout,
+			ModelPath:    modelPath,
+			Name:         modelName,
+			GPUs:         gpus,
+			NVLink:       loadNVLink,
+			EnforceEager: loadEnforceEager,
+			Timeout:      loadTimeout,
 		},
 	}
 

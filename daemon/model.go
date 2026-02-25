@@ -14,12 +14,18 @@ import (
 // ErrNoModel is returned when a chat is attempted with no model loaded.
 var ErrNoModel = errors.New("no model loaded")
 
+// LoadOpts contains options for model loading.
+type LoadOpts struct {
+	NVLink       bool // Enable tensor parallelism across GPUs (requires NVLink interconnect)
+	EnforceEager bool // Disable CUDA graph capturing for faster model loading
+}
+
 // ModelBackend abstracts the LLM engine for testability.
-// The real implementation wraps llama-go; tests use a mock.
+// The real implementation uses vLLM; tests use a mock.
 type ModelBackend interface {
 	// LoadModel loads a model from the given path onto the specified GPUs.
 	// gpus is the list of GPU device IDs (e.g. [0] or [0,1]).
-	LoadModel(path string, gpus []int) error
+	LoadModel(path string, gpus []int, opts LoadOpts) error
 	// UnloadModel frees the currently loaded model.
 	UnloadModel() error
 	// IsLoaded returns true if a model is currently loaded.
@@ -133,9 +139,14 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 }
 
 // Load loads a model onto the specified GPUs with an optional inactivity timeout.
-func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration) error {
+func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Multi-GPU requires NVLink for tensor parallelism.
+	if len(gpus) > 1 && !opts.NVLink {
+		return fmt.Errorf("multiple GPUs require --nvlink for tensor parallelism")
+	}
 
 	// Check GPU conflicts before doing anything irreversible.
 	for _, gpu := range gpus {
@@ -151,7 +162,7 @@ func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duratio
 
 	// Create backend and load
 	backend := r.newBackend(r.cfg)
-	if err := backend.LoadModel(path, gpus); err != nil {
+	if err := backend.LoadModel(path, gpus, opts); err != nil {
 		return err
 	}
 

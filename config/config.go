@@ -11,21 +11,42 @@ import (
 
 // Config holds all jarvis configuration.
 type Config struct {
-	DefaultModel   string            `yaml:"default_model"`
-	DefaultTimeout string            `yaml:"default_timeout"`
-	DefaultGPU     int               `yaml:"default_gpu"`
-	Models         map[string]string `yaml:"models"`
-	ModelOptions   ModelOptions      `yaml:"model_options"`
-	Inference      InferenceConfig   `yaml:"inference"`
-	SystemPrompt   string            `yaml:"system_prompt"`
-	Search         SearchConfig      `yaml:"search"`
+	DefaultModel   string                `yaml:"default_model"`
+	DefaultTimeout string                `yaml:"default_timeout"`
+	DefaultGPU     int                   `yaml:"default_gpu"`
+	Models         map[string]ModelEntry `yaml:"models"`
+	ModelOptions   ModelOptions          `yaml:"model_options"`
+	Inference      InferenceConfig       `yaml:"inference"`
+	SystemPrompt   string                `yaml:"system_prompt"`
+	Search         SearchConfig          `yaml:"search"`
+	VLLM           VLLMConfig            `yaml:"vllm"`
+}
+
+// ModelEntry stores a registered model's path and options.
+type ModelEntry struct {
+	Path   string `yaml:"path"`
+	NVLink bool   `yaml:"nvlink,omitempty"`
+}
+
+// UnmarshalYAML allows ModelEntry to be specified as either a bare string
+// (backward-compatible: just the path) or a full map with path and nvlink fields.
+func (e *ModelEntry) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		e.Path = value.Value
+		return nil
+	}
+	type raw ModelEntry
+	return value.Decode((*raw)(e))
 }
 
 // ModelOptions configures how models are loaded.
 type ModelOptions struct {
-	GPULayers   int    `yaml:"gpu_layers"`
-	TensorSplit string `yaml:"tensor_split"`
-	MLock       bool   `yaml:"mlock"`
+	GPUMemoryUtilization float64 `yaml:"gpu_memory_utilization"`
+}
+
+// VLLMConfig configures the vLLM server binary.
+type VLLMConfig struct {
+	BinaryPath string `yaml:"binary_path"`
 }
 
 // InferenceConfig holds default inference parameters.
@@ -48,10 +69,10 @@ type SearchConfig struct {
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	return &Config{
-		Models:         make(map[string]string),
+		Models:         make(map[string]ModelEntry),
 		DefaultTimeout: "30m",
 		ModelOptions: ModelOptions{
-			GPULayers: -1,
+			GPUMemoryUtilization: 0.9,
 		},
 		Inference: InferenceConfig{
 			ContextSize: 8192,
@@ -65,6 +86,9 @@ func Defaults() *Config {
 		Search: SearchConfig{
 			Provider:   "brave",
 			MaxResults: 5,
+		},
+		VLLM: VLLMConfig{
+			BinaryPath: "vllm",
 		},
 	}
 }
@@ -94,7 +118,7 @@ func LoadFrom(path string) (*Config, error) {
 
 	// Ensure maps are initialized
 	if cfg.Models == nil {
-		cfg.Models = make(map[string]string)
+		cfg.Models = make(map[string]ModelEntry)
 	}
 
 	return cfg, nil
@@ -128,10 +152,16 @@ func WriteDefault() (string, error) {
 // If the input matches a configured alias, it returns the alias's path.
 // Otherwise it returns the input as-is (assumed to be a path).
 func (c *Config) ResolveModel(nameOrPath string) string {
-	if path, ok := c.Models[nameOrPath]; ok {
-		return path
+	if entry, ok := c.Models[nameOrPath]; ok {
+		return entry.Path
 	}
 	return nameOrPath
+}
+
+// GetModelEntry returns the model entry for a registered name.
+func (c *Config) GetModelEntry(name string) (ModelEntry, bool) {
+	entry, ok := c.Models[name]
+	return entry, ok
 }
 
 // SearchAPIKey returns the search API key, checking the env var as fallback.
@@ -154,12 +184,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// AddModel registers a named model alias.
-func (c *Config) AddModel(name, path string) {
+// AddModel registers a named model alias with optional NVLink preference.
+func (c *Config) AddModel(name, path string, nvlink bool) {
 	if c.Models == nil {
-		c.Models = make(map[string]string)
+		c.Models = make(map[string]ModelEntry)
 	}
-	c.Models[name] = path
+	c.Models[name] = ModelEntry{Path: path, NVLink: nvlink}
 }
 
 // RemoveModel deletes a named model alias. Returns false if the name was not found.

@@ -161,13 +161,13 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		if err == nil {
 			h.Config = cfg
 		}
-		resolved, ok := h.Config.Models[req.Name]
+		entry, ok := h.Config.Models[req.Name]
 		if !ok {
 			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
 				"model %q not found in registry; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
 			return
 		}
-		path = resolved
+		path = entry.Path
 	} else {
 		rw.Write(protocol.ErrorResponse("must specify a model name or path"))
 		return
@@ -185,6 +185,14 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		gpus = []int{h.Config.DefaultGPU}
 	}
 
+	// Determine NVLink: enabled if set on request OR in model config entry
+	nvlink := req.NVLink
+	if !nvlink && req.Name != "" {
+		if entry, ok := h.Config.GetModelEntry(req.Name); ok {
+			nvlink = entry.NVLink
+		}
+	}
+
 	// Determine timeout
 	var timeout time.Duration
 	if req.Timeout != "" {
@@ -198,7 +206,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout); err != nil {
+	if err := h.Registry.Load(name, path, gpus, timeout, LoadOpts{NVLink: nvlink, EnforceEager: req.EnforceEager}); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

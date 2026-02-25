@@ -45,8 +45,8 @@ func Run() error {
 
 	log.Printf("jarvis daemon starting (pid=%d)", os.Getpid())
 
-	// Create model registry with factory for worker backends
-	registry := NewModelRegistry(cfg, NewWorkerBackend)
+	// Create model registry with factory for vLLM backends
+	registry := NewModelRegistry(cfg, NewVLLMBackend)
 	defer registry.Shutdown()
 
 	// Set up search
@@ -75,8 +75,13 @@ func Run() error {
 		if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
 			timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
 		}
+		// Check if model has NVLink preference from registry
+		var opts LoadOpts
+		if entry, ok := cfg.GetModelEntry(cfg.DefaultModel); ok {
+			opts.NVLink = entry.NVLink
+		}
 		log.Printf("auto-loading default model: %s", modelPath)
-		if err := registry.Load(cfg.DefaultModel, modelPath, gpus, timeout); err != nil {
+		if err := registry.Load(cfg.DefaultModel, modelPath, gpus, timeout, opts); err != nil {
 			log.Printf("warning: failed to auto-load model: %v", err)
 		} else {
 			log.Printf("default model loaded successfully")

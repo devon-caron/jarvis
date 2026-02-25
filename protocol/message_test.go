@@ -73,7 +73,7 @@ func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 			ModelPath: "/path/to/model.gguf",
 			Name:      "mymodel",
 			GPUs:      []int{0, 1},
-			GPULayers: -1,
+			NVLink:    true,
 			Timeout:   "30m",
 		},
 	}
@@ -102,6 +102,9 @@ func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 	}
 	if len(got.Load.GPUs) != 2 || got.Load.GPUs[0] != 0 || got.Load.GPUs[1] != 1 {
 		t.Errorf("GPUs = %v, want [0, 1]", got.Load.GPUs)
+	}
+	if !got.Load.NVLink {
+		t.Error("NVLink should be true")
 	}
 	if got.Load.Timeout != "30m" {
 		t.Errorf("Timeout = %q, want 30m", got.Load.Timeout)

@@ -11,7 +11,10 @@ import (
 	"github.com/devon-caron/jarvis/internal"
 )
 
-var registerPath string
+var (
+	registerPath   string
+	registerNVLink bool
+)
 
 var registerCmd = &cobra.Command{
 	Use:   "register <name>",
@@ -29,6 +32,7 @@ var unregisterCmd = &cobra.Command{
 
 func init() {
 	registerCmd.Flags().StringVarP(&registerPath, "path", "p", "", "Path to the model file (required)")
+	registerCmd.Flags().BoolVarP(&registerNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism for this model")
 	registerCmd.MarkFlagRequired("path")
 	modelsCmd.AddCommand(registerCmd)
 	modelsCmd.AddCommand(unregisterCmd)
@@ -55,13 +59,17 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, absPath)
+	cfg.AddModel(name, absPath, registerNVLink)
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("Registered model %q -> %s\n", name, absPath)
+	nvlinkMsg := ""
+	if registerNVLink {
+		nvlinkMsg = " [nvlink]"
+	}
+	fmt.Printf("Registered model %q -> %s%s\n", name, absPath, nvlinkMsg)
 	return nil
 }
 

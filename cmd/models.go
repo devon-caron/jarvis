@@ -26,6 +26,8 @@ func init() {
 	modelsLoadCmd.Flags().StringVarP(&loadGPUs, "gpus", "g", "", `GPU device IDs (e.g. "0" or "0,1")`)
 	modelsLoadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	modelsLoadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", `Inactivity timeout (e.g. "30m", "1h")`)
+	modelsLoadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism across GPUs")
+	modelsLoadCmd.Flags().BoolVarP(&loadEnforceEager, "enforce-eager", "e", false, "Disable CUDA graph capturing for faster model loading")
 
 	// models unload — mirrors top-level unload
 	modelsUnloadCmd := &cobra.Command{
@@ -60,8 +62,12 @@ func runModelsLs(cmd *cobra.Command, args []string) error {
 		fmt.Println("No models registered. Use 'jarvis models register' to add one.")
 		return nil
 	}
-	for name, path := range cfg.Models {
-		fmt.Printf("  %-20s %s\n", name, path)
+	for name, entry := range cfg.Models {
+		nvlinkTag := ""
+		if entry.NVLink {
+			nvlinkTag = " [nvlink]"
+		}
+		fmt.Printf("  %-20s %s%s\n", name, entry.Path, nvlinkTag)
 	}
 	return nil
 }

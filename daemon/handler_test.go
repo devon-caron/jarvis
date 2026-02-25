@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,8 +54,8 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 
 func TestHandler_Chat(t *testing.T) {
 	h, backend := newTestHandler(t)
-	backend.LoadModel("/model.gguf", []int{0})
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0)
+	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -137,7 +138,7 @@ func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -168,7 +169,7 @@ func TestHandler_Chat_WebSearch(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -196,7 +197,7 @@ func TestHandler_Chat_WebSearch_ZeroResults(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -223,7 +224,7 @@ func TestHandler_Chat_WebSearch_Error(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -263,8 +264,8 @@ func TestHandler_Chat_WithModelName(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -319,9 +320,18 @@ func TestHandler_Load_NilPayload(t *testing.T) {
 }
 
 func TestHandler_Load_AliasResolution(t *testing.T) {
-	backend := &mockBackend{}
+	// handleLoad reloads config from disk, so we need to write a config file.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
 	cfg := config.Defaults()
-	cfg.Models["big"] = "/path/to/big.gguf"
+	cfg.Models["big"] = config.ModelEntry{Path: "/path/to/big.gguf"}
+	cfgPath := filepath.Join(dir, "jarvis", "config.yaml")
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	backend := &mockBackend{}
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
@@ -331,7 +341,7 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 
 	h.Handle(&protocol.Request{
 		Type: protocol.ReqLoad,
-		Load: &protocol.LoadRequest{ModelPath: "big", Name: "big"},
+		Load: &protocol.LoadRequest{Name: "big"},
 	}, rw)
 
 	if backend.path != "/path/to/big.gguf" {
@@ -341,7 +351,7 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 
 func TestHandler_Unload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -373,7 +383,7 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 
 func TestHandler_Status(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -534,7 +544,7 @@ func TestHandler_Load_WithGPUs(t *testing.T) {
 
 	h.Handle(&protocol.Request{
 		Type: protocol.ReqLoad,
-		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1, 2}},
+		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1, 2}, NVLink: true},
 	}, rw)
 
 	responses := readResponses(t, &buf)
@@ -583,8 +593,8 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	gpu := 0
 	var buf bytes.Buffer
@@ -607,7 +617,7 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 
 func TestHandler_Unload_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -635,8 +645,8 @@ func TestHandler_Status_MultiModel(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -687,7 +697,7 @@ func TestHandler_Load_GPUAssignment_MultiGPU(t *testing.T) {
 
 	h.Handle(&protocol.Request{
 		Type: protocol.ReqLoad,
-		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{0, 1}},
+		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{0, 1}, NVLink: true},
 	}, rw)
 
 	responses := readResponses(t, &buf)
