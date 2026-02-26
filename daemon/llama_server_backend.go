@@ -50,7 +50,7 @@ func NewLlamaServerBackend(cfg *config.Config) ModelBackend {
 }
 
 // LoadModel spawns a llama-server process and waits for it to become healthy.
-func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int) error {
+func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, nvlink bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -80,6 +80,15 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int)
 	}
 	if b.cfg.ModelOptions.MLock {
 		args = append(args, "--mlock")
+	}
+	if nvlink {
+		if len(gpus) == 1 {
+			return fmt.Errorf("NVLink (-sm graph) requires multiple GPUs; use -g 0,1 or omit -g to use all GPUs")
+		}
+		if err := checkNCCL(); err != nil {
+			return err
+		}
+		args = append(args, "-sm", "graph")
 	}
 
 	cmd := exec.Command(binary, args...)
@@ -398,6 +407,19 @@ var vramErrorPatterns = []string{
 	"out of memory",
 	"failed to allocate",
 	"unable to allocate",
+}
+
+// checkNCCL verifies that the NCCL library is available on the system.
+// Required for -sm graph (NVLink tensor parallelism).
+func checkNCCL() error {
+	out, err := exec.Command("ldconfig", "-p").Output()
+	if err != nil {
+		return fmt.Errorf("failed to check for NCCL: %w", err)
+	}
+	if !strings.Contains(string(out), "libnccl") {
+		return fmt.Errorf("NCCL library not found; install libnccl-dev for NVLink support (-sm graph)")
+	}
+	return nil
 }
 
 // isVRAMError scans stderr for CUDA/GPU out-of-memory indicators.

@@ -27,6 +27,7 @@ func init() {
 	modelsLoadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	modelsLoadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", `Inactivity timeout (e.g. "30m", "1h")`)
 	modelsLoadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
+	modelsLoadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
 
 	// models unload — mirrors top-level unload
 	modelsUnloadCmd := &cobra.Command{
@@ -62,10 +63,14 @@ func runModelsLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	for name, entry := range cfg.Models {
+		flags := ""
+		if entry.NVLink {
+			flags += " (nvlink)"
+		}
 		if entry.ContextSize > 0 {
-			fmt.Printf("  %-20s %s (ctx: %d)\n", name, entry.Path, entry.ContextSize)
+			fmt.Printf("  %-20s %s (ctx: %d)%s\n", name, entry.Path, entry.ContextSize, flags)
 		} else {
-			fmt.Printf("  %-20s %s\n", name, entry.Path)
+			fmt.Printf("  %-20s %s%s\n", name, entry.Path, flags)
 		}
 	}
 	return nil

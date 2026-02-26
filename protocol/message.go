@@ -49,6 +49,7 @@ type LoadRequest struct {
 	GPULayers   int    `json:"gpu_layers"`
 	Timeout     string `json:"timeout,omitempty"`
 	ContextSize int    `json:"context_size,omitempty"`
+	NVLink      bool   `json:"nvlink,omitempty"`
 }
 
 // UnloadRequest holds the payload for a model unload request.

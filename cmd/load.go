@@ -16,6 +16,7 @@ var (
 	loadPath        string
 	loadTimeout     string
 	loadContextSize int
+	loadNVLink      bool
 )
 
 var loadCmd = &cobra.Command{
@@ -37,6 +38,7 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
 	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
+	loadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
 	rootCmd.AddCommand(loadCmd)
 }
 
@@ -94,6 +96,7 @@ func runLoad(cmd *cobra.Command, args []string) error {
 			GPUs:        gpus,
 			Timeout:     loadTimeout,
 			ContextSize: loadContextSize,
+			NVLink:      loadNVLink,
 		},
 	}
 

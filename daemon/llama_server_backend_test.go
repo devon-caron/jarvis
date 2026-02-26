@@ -58,7 +58,7 @@ func TestLlamaServerBackend_GetStatus_WhenNotLoaded(t *testing.T) {
 func TestLlamaServerBackend_LoadModel_BadPath(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewLlamaServerBackend(cfg).(*LlamaServerBackend)
-	err := b.LoadModel("/nonexistent/model.gguf", []int{0}, 8192)
+	err := b.LoadModel("/nonexistent/model.gguf", []int{0}, 8192, false)
 	if err == nil {
 		t.Error("LoadModel should error for nonexistent file")
 	}

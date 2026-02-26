@@ -307,7 +307,7 @@ func TestSave_CreatesDirectories(t *testing.T) {
 
 func TestAddModel(t *testing.T) {
 	cfg := Defaults()
-	cfg.AddModel("mymodel", "/path/to/model.gguf", 8192)
+	cfg.AddModel("mymodel", "/path/to/model.gguf", 8192, false)
 
 	if cfg.Models["mymodel"].Path != "/path/to/model.gguf" {
 		t.Errorf("Models[mymodel].Path = %q, want /path/to/model.gguf", cfg.Models["mymodel"].Path)
@@ -317,7 +317,7 @@ func TestAddModel(t *testing.T) {
 	}
 
 	// Update existing
-	cfg.AddModel("mymodel", "/new/path.gguf", 16384)
+	cfg.AddModel("mymodel", "/new/path.gguf", 16384, false)
 	if cfg.Models["mymodel"].Path != "/new/path.gguf" {
 		t.Errorf("Models[mymodel].Path = %q, want /new/path.gguf", cfg.Models["mymodel"].Path)
 	}
@@ -328,7 +328,7 @@ func TestAddModel(t *testing.T) {
 
 func TestAddModel_NilMap(t *testing.T) {
 	cfg := &Config{}
-	cfg.AddModel("test", "/path.gguf", 4096)
+	cfg.AddModel("test", "/path.gguf", 4096, false)
 
 	if cfg.Models["test"].Path != "/path.gguf" {
 		t.Errorf("Models[test].Path = %q, want /path.gguf", cfg.Models["test"].Path)

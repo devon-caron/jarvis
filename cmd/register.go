@@ -11,7 +11,10 @@ import (
 	"github.com/devon-caron/jarvis/internal"
 )
 
-var registerContextSize int
+var (
+	registerContextSize int
+	registerNVLink      bool
+)
 
 var registerCmd = &cobra.Command{
 	Use:   "register <name> <path>",
@@ -29,6 +32,7 @@ var unregisterCmd = &cobra.Command{
 
 func init() {
 	registerCmd.Flags().IntVarP(&registerContextSize, "context-size", "c", 8192, "Default context window size")
+	registerCmd.Flags().BoolVarP(&registerNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
 	modelsCmd.AddCommand(registerCmd)
 	modelsCmd.AddCommand(unregisterCmd)
 }
@@ -55,13 +59,17 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, absPath, registerContextSize)
+	cfg.AddModel(name, absPath, registerContextSize, registerNVLink)
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("Registered model %q -> %s (context: %d)\n", name, absPath, registerContextSize)
+	if registerNVLink {
+		fmt.Printf("Registered model %q -> %s (context: %d, nvlink)\n", name, absPath, registerContextSize)
+	} else {
+		fmt.Printf("Registered model %q -> %s (context: %d)\n", name, absPath, registerContextSize)
+	}
 	return nil
 }
 

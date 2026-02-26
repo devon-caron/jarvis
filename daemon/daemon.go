@@ -73,7 +73,11 @@ func Run() error {
 		if !ok {
 			log.Printf("warning: default model %q not found in registry", cfg.DefaultModel)
 		} else {
-			gpus := []int{cfg.DefaultGPU}
+			// When NVLink is enabled, leave gpus empty so all GPUs are visible.
+			var gpus []int
+			if !entry.NVLink {
+				gpus = []int{cfg.DefaultGPU}
+			}
 			var timeout time.Duration
 			if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
 				timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
@@ -82,8 +86,8 @@ func Run() error {
 			if contextSize == 0 {
 				contextSize = cfg.Inference.ContextSize
 			}
-			log.Printf("auto-loading default model: %s (context: %d)", entry.Path, contextSize)
-			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize); err != nil {
+			log.Printf("auto-loading default model: %s (context: %d, nvlink: %v)", entry.Path, contextSize, entry.NVLink)
+			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.NVLink); err != nil {
 				log.Printf("warning: failed to auto-load model: %v", err)
 			} else {
 				log.Printf("default model loaded successfully")

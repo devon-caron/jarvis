@@ -13,6 +13,7 @@ import (
 type ModelEntry struct {
 	Path        string `yaml:"path"`
 	ContextSize int    `yaml:"context_size,omitempty"` // 0 = use default (8192)
+	NVLink      bool   `yaml:"nvlink,omitempty"`       // use -sm graph for NVLink tensor parallelism
 }
 
 // LlamaServerConfig configures the llama-server binary.
@@ -166,12 +167,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// AddModel registers a named model with path and context size.
-func (c *Config) AddModel(name, path string, contextSize int) {
+// AddModel registers a named model with path, context size, and NVLink flag.
+func (c *Config) AddModel(name, path string, contextSize int, nvlink bool) {
 	if c.Models == nil {
 		c.Models = make(map[string]ModelEntry)
 	}
-	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize}
+	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize, NVLink: nvlink}
 }
 
 // RemoveModel deletes a named model alias. Returns false if the name was not found.
