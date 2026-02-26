@@ -50,6 +50,7 @@ type LoadRequest struct {
 	Timeout     string `json:"timeout,omitempty"`
 	ContextSize int    `json:"context_size,omitempty"`
 	NVLink      bool   `json:"nvlink,omitempty"`
+	Parallel    int    `json:"parallel,omitempty"`
 }
 
 // UnloadRequest holds the payload for a model unload request.

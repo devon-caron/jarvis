@@ -50,7 +50,7 @@ func NewLlamaServerBackend(cfg *config.Config) ModelBackend {
 }
 
 // LoadModel spawns a llama-server process and waits for it to become healthy.
-func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, nvlink bool) error {
+func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, nvlink bool, parallel int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -89,6 +89,9 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int,
 			return err
 		}
 		args = append(args, "-sm", "graph")
+	}
+	if parallel > 0 {
+		args = append(args, "--parallel", strconv.Itoa(parallel))
 	}
 
 	cmd := exec.Command(binary, args...)

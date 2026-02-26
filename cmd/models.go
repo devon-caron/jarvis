@@ -28,6 +28,7 @@ func init() {
 	modelsLoadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", `Inactivity timeout (e.g. "30m", "1h")`)
 	modelsLoadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
 	modelsLoadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
+	modelsLoadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
 
 	// models unload — mirrors top-level unload
 	modelsUnloadCmd := &cobra.Command{

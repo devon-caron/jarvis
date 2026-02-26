@@ -21,7 +21,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	cfg := config.Defaults()
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
-	registry.Load("test", "/model.gguf", []int{0}, 0, 0, false)
+	registry.Load("test", "/model.gguf", []int{0}, 0, 0, false, 0)
 
 	stopCh := make(chan struct{}, 1)
 	handler := NewHandler(registry, cfg, nil, stopCh)

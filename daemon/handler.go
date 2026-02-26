@@ -215,7 +215,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout, contextSize, nvlink); err != nil {
+	if err := h.Registry.Load(name, path, gpus, timeout, contextSize, nvlink, req.Parallel); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

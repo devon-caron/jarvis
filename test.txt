@@ -1,0 +1,7 @@
+  curl -s http://127.0.0.1:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"messages":[{"role":"user","content":"Say hello"}],"max_tokens":32}' &
+  curl -s http://127.0.0.1:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"messages":[{"role":"user","content":"Say goodbye"}],"max_tokens":32}' &
+  wait

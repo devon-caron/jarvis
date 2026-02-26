@@ -17,6 +17,7 @@ var (
 	loadTimeout     string
 	loadContextSize int
 	loadNVLink      bool
+	loadParallel    int
 )
 
 var loadCmd = &cobra.Command{
@@ -39,6 +40,7 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
 	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
 	loadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
+	loadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
 	rootCmd.AddCommand(loadCmd)
 }
 
@@ -97,6 +99,7 @@ func runLoad(cmd *cobra.Command, args []string) error {
 			Timeout:     loadTimeout,
 			ContextSize: loadContextSize,
 			NVLink:      loadNVLink,
+			Parallel:    loadParallel,
 		},
 	}
 

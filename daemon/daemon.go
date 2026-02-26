@@ -87,7 +87,7 @@ func Run() error {
 				contextSize = cfg.Inference.ContextSize
 			}
 			log.Printf("auto-loading default model: %s (context: %d, nvlink: %v)", entry.Path, contextSize, entry.NVLink)
-			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.NVLink); err != nil {
+			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.NVLink, 0); err != nil {
 				log.Printf("warning: failed to auto-load model: %v", err)
 			} else {
 				log.Printf("default model loaded successfully")
