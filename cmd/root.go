@@ -18,7 +18,6 @@ var (
 	batchMode    bool
 	systemPrompt string
 	maxTokens    int
-	contextSize  int
 	temperature  float64
 	modelFlag    string
 	gpuFlag      int
@@ -39,7 +38,6 @@ func init() {
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
 	rootCmd.Flags().StringVar(&systemPrompt, "system", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
-	rootCmd.Flags().IntVarP(&contextSize, "context-size", "c", 8192, "Context window size in tokens (default 8192)")
 	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
 	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
 	rootCmd.Flags().IntVarP(&gpuFlag, "gpu", "g", -1, "Route to whichever model is loaded on this GPU")
@@ -65,9 +63,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	}
 	defer c.Close()
 
-	opts := protocol.InferenceOpts{
-		ContextSize: contextSize,
-	}
+	opts := protocol.InferenceOpts{}
 	if maxTokens > 0 {
 		opts.MaxTokens = maxTokens
 	}

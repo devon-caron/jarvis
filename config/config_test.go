@@ -77,8 +77,11 @@ default_model: mymodel
 default_timeout: "30m"
 default_gpu: 1
 models:
-  mymodel: /path/to/model.gguf
-  small: /path/to/small.gguf
+  mymodel:
+    path: /path/to/model.gguf
+    context_size: 16384
+  small:
+    path: /path/to/small.gguf
 model_options:
   gpu_layers: 40
   tensor_split: "0.6,0.4"
@@ -95,6 +98,8 @@ search:
   provider: brave
   api_key: "test-key"
   max_results: 3
+llama_server:
+  binary_path: /usr/local/bin/llama-server
 `
 	os.WriteFile(cfgPath, []byte(yaml), 0644)
 
@@ -112,11 +117,17 @@ search:
 	if cfg.DefaultGPU != 1 {
 		t.Errorf("DefaultGPU = %d, want 1", cfg.DefaultGPU)
 	}
-	if cfg.Models["mymodel"] != "/path/to/model.gguf" {
-		t.Errorf("Models[mymodel] = %q", cfg.Models["mymodel"])
+	if cfg.Models["mymodel"].Path != "/path/to/model.gguf" {
+		t.Errorf("Models[mymodel].Path = %q", cfg.Models["mymodel"].Path)
 	}
-	if cfg.Models["small"] != "/path/to/small.gguf" {
-		t.Errorf("Models[small] = %q", cfg.Models["small"])
+	if cfg.Models["mymodel"].ContextSize != 16384 {
+		t.Errorf("Models[mymodel].ContextSize = %d, want 16384", cfg.Models["mymodel"].ContextSize)
+	}
+	if cfg.Models["small"].Path != "/path/to/small.gguf" {
+		t.Errorf("Models[small].Path = %q", cfg.Models["small"].Path)
+	}
+	if cfg.Models["small"].ContextSize != 0 {
+		t.Errorf("Models[small].ContextSize = %d, want 0 (unset)", cfg.Models["small"].ContextSize)
 	}
 	if cfg.ModelOptions.GPULayers != 40 {
 		t.Errorf("GPULayers = %d, want 40", cfg.ModelOptions.GPULayers)
@@ -144,6 +155,9 @@ search:
 	}
 	if cfg.Search.MaxResults != 3 {
 		t.Errorf("Search.MaxResults = %d, want 3", cfg.Search.MaxResults)
+	}
+	if cfg.LlamaServer.BinaryPath != "/usr/local/bin/llama-server" {
+		t.Errorf("LlamaServer.BinaryPath = %q, want /usr/local/bin/llama-server", cfg.LlamaServer.BinaryPath)
 	}
 }
 
@@ -177,21 +191,27 @@ func TestLoadFrom_PartialYAML(t *testing.T) {
 	}
 }
 
-func TestResolveModel_Alias(t *testing.T) {
+func TestResolveModel_Found(t *testing.T) {
 	cfg := Defaults()
-	cfg.Models["big"] = "/path/to/big.gguf"
+	cfg.Models["big"] = ModelEntry{Path: "/path/to/big.gguf", ContextSize: 4096}
 
-	got := cfg.ResolveModel("big")
-	if got != "/path/to/big.gguf" {
-		t.Errorf("ResolveModel(big) = %q, want /path/to/big.gguf", got)
+	entry, ok := cfg.ResolveModel("big")
+	if !ok {
+		t.Fatal("ResolveModel(big) should return true")
+	}
+	if entry.Path != "/path/to/big.gguf" {
+		t.Errorf("Path = %q, want /path/to/big.gguf", entry.Path)
+	}
+	if entry.ContextSize != 4096 {
+		t.Errorf("ContextSize = %d, want 4096", entry.ContextSize)
 	}
 }
 
-func TestResolveModel_Path(t *testing.T) {
+func TestResolveModel_NotFound(t *testing.T) {
 	cfg := Defaults()
-	got := cfg.ResolveModel("/direct/path.gguf")
-	if got != "/direct/path.gguf" {
-		t.Errorf("ResolveModel = %q, want /direct/path.gguf", got)
+	_, ok := cfg.ResolveModel("nonexistent")
+	if ok {
+		t.Error("ResolveModel(nonexistent) should return false")
 	}
 }
 
@@ -243,7 +263,7 @@ func TestSave(t *testing.T) {
 	cfg.DefaultModel = "testmodel"
 	cfg.DefaultGPU = 1
 	cfg.DefaultTimeout = "30m"
-	cfg.Models["test"] = "/path/to/test.gguf"
+	cfg.Models["test"] = ModelEntry{Path: "/path/to/test.gguf", ContextSize: 8192}
 
 	if err := cfg.Save(cfgPath); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -263,8 +283,11 @@ func TestSave(t *testing.T) {
 	if loaded.DefaultTimeout != "30m" {
 		t.Errorf("DefaultTimeout = %q, want 30m", loaded.DefaultTimeout)
 	}
-	if loaded.Models["test"] != "/path/to/test.gguf" {
-		t.Errorf("Models[test] = %q", loaded.Models["test"])
+	if loaded.Models["test"].Path != "/path/to/test.gguf" {
+		t.Errorf("Models[test].Path = %q", loaded.Models["test"].Path)
+	}
+	if loaded.Models["test"].ContextSize != 8192 {
+		t.Errorf("Models[test].ContextSize = %d, want 8192", loaded.Models["test"].ContextSize)
 	}
 }
 
@@ -284,25 +307,34 @@ func TestSave_CreatesDirectories(t *testing.T) {
 
 func TestAddModel(t *testing.T) {
 	cfg := Defaults()
-	cfg.AddModel("mymodel", "/path/to/model.gguf")
+	cfg.AddModel("mymodel", "/path/to/model.gguf", 8192, "")
 
-	if cfg.Models["mymodel"] != "/path/to/model.gguf" {
-		t.Errorf("Models[mymodel] = %q, want /path/to/model.gguf", cfg.Models["mymodel"])
+	if cfg.Models["mymodel"].Path != "/path/to/model.gguf" {
+		t.Errorf("Models[mymodel].Path = %q, want /path/to/model.gguf", cfg.Models["mymodel"].Path)
+	}
+	if cfg.Models["mymodel"].ContextSize != 8192 {
+		t.Errorf("Models[mymodel].ContextSize = %d, want 8192", cfg.Models["mymodel"].ContextSize)
 	}
 
 	// Update existing
-	cfg.AddModel("mymodel", "/new/path.gguf")
-	if cfg.Models["mymodel"] != "/new/path.gguf" {
-		t.Errorf("Models[mymodel] = %q, want /new/path.gguf", cfg.Models["mymodel"])
+	cfg.AddModel("mymodel", "/new/path.gguf", 16384, "")
+	if cfg.Models["mymodel"].Path != "/new/path.gguf" {
+		t.Errorf("Models[mymodel].Path = %q, want /new/path.gguf", cfg.Models["mymodel"].Path)
+	}
+	if cfg.Models["mymodel"].ContextSize != 16384 {
+		t.Errorf("Models[mymodel].ContextSize = %d, want 16384", cfg.Models["mymodel"].ContextSize)
 	}
 }
 
 func TestAddModel_NilMap(t *testing.T) {
 	cfg := &Config{}
-	cfg.AddModel("test", "/path.gguf")
+	cfg.AddModel("test", "/path.gguf", 4096, "")
 
-	if cfg.Models["test"] != "/path.gguf" {
-		t.Errorf("Models[test] = %q, want /path.gguf", cfg.Models["test"])
+	if cfg.Models["test"].Path != "/path.gguf" {
+		t.Errorf("Models[test].Path = %q, want /path.gguf", cfg.Models["test"].Path)
+	}
+	if cfg.Models["test"].ContextSize != 4096 {
+		t.Errorf("Models[test].ContextSize = %d, want 4096", cfg.Models["test"].ContextSize)
 	}
 }
 
@@ -366,8 +398,8 @@ func TestSave_RoundTrip(t *testing.T) {
 	cfg := Defaults()
 	cfg.DefaultTimeout = "1h"
 	cfg.DefaultGPU = 2
-	cfg.Models["big"] = "/models/big.gguf"
-	cfg.Models["small"] = "/models/small.gguf"
+	cfg.Models["big"] = ModelEntry{Path: "/models/big.gguf", ContextSize: 16384}
+	cfg.Models["small"] = ModelEntry{Path: "/models/small.gguf"}
 
 	if err := cfg.Save(cfgPath); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -384,10 +416,13 @@ func TestSave_RoundTrip(t *testing.T) {
 	if loaded.DefaultGPU != 2 {
 		t.Errorf("DefaultGPU = %d, want 2", loaded.DefaultGPU)
 	}
-	if loaded.Models["big"] != "/models/big.gguf" {
-		t.Errorf("Models[big] = %q", loaded.Models["big"])
+	if loaded.Models["big"].Path != "/models/big.gguf" {
+		t.Errorf("Models[big].Path = %q", loaded.Models["big"].Path)
 	}
-	if loaded.Models["small"] != "/models/small.gguf" {
-		t.Errorf("Models[small] = %q", loaded.Models["small"])
+	if loaded.Models["big"].ContextSize != 16384 {
+		t.Errorf("Models[big].ContextSize = %d, want 16384", loaded.Models["big"].ContextSize)
+	}
+	if loaded.Models["small"].Path != "/models/small.gguf" {
+		t.Errorf("Models[small].Path = %q", loaded.Models["small"].Path)
 	}
 }

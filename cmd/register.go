@@ -8,15 +8,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/config"
+	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/internal"
 )
 
-var registerPath string
+var (
+	registerContextSize int
+	registerSplitMode   string
+)
 
 var registerCmd = &cobra.Command{
-	Use:   "register <name>",
+	Use:   "register <name> <path>",
 	Short: "Register a named model alias in config",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(2),
 	RunE:  runRegister,
 }
 
@@ -28,8 +32,8 @@ var unregisterCmd = &cobra.Command{
 }
 
 func init() {
-	registerCmd.Flags().StringVarP(&registerPath, "path", "p", "", "Path to the model file (required)")
-	registerCmd.MarkFlagRequired("path")
+	registerCmd.Flags().IntVarP(&registerContextSize, "context-size", "c", 8192, "Default context window size")
+	registerCmd.Flags().StringVarP(&registerSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	modelsCmd.AddCommand(registerCmd)
 	modelsCmd.AddCommand(unregisterCmd)
 }
@@ -37,16 +41,23 @@ func init() {
 func runRegister(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 	name := args[0]
+	modelPath := args[1]
 
 	// Resolve to absolute path so the daemon (different cwd) can find the file.
-	absPath, err := filepath.Abs(registerPath)
+	absPath, err := filepath.Abs(modelPath)
 	if err != nil {
-		return fmt.Errorf("invalid path %q: %w", registerPath, err)
+		return fmt.Errorf("invalid path %q: %w", modelPath, err)
 	}
 
 	// Validate that the file exists on disk.
 	if _, err := os.Stat(absPath); err != nil {
 		return fmt.Errorf("model path does not exist: %s", absPath)
+	}
+
+	// Validate and normalize split mode.
+	splitMode, err := daemon.NormalizeSplitMode(registerSplitMode)
+	if err != nil {
+		return err
 	}
 
 	cfgPath := internal.ConfigPath()
@@ -55,13 +66,17 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, absPath)
+	cfg.AddModel(name, absPath, registerContextSize, splitMode)
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("Registered model %q -> %s\n", name, absPath)
+	if splitMode != "" {
+		fmt.Printf("Registered model %q -> %s (context: %d, split: %s)\n", name, absPath, registerContextSize, splitMode)
+	} else {
+		fmt.Printf("Registered model %q -> %s (context: %d)\n", name, absPath, registerContextSize)
+	}
 	return nil
 }
 

@@ -9,16 +9,29 @@ import (
 	"github.com/devon-caron/jarvis/internal"
 )
 
+// ModelEntry stores a registered model's path and settings.
+type ModelEntry struct {
+	Path        string `yaml:"path"`
+	ContextSize int    `yaml:"context_size,omitempty"` // 0 = use default (8192)
+	SplitMode   string `yaml:"split_mode,omitempty"`   // multi-GPU split mode: layer, row, or graph
+}
+
+// LlamaServerConfig configures the llama-server binary.
+type LlamaServerConfig struct {
+	BinaryPath string `yaml:"binary_path"`
+}
+
 // Config holds all jarvis configuration.
 type Config struct {
-	DefaultModel   string            `yaml:"default_model"`
-	DefaultTimeout string            `yaml:"default_timeout"`
-	DefaultGPU     int               `yaml:"default_gpu"`
-	Models         map[string]string `yaml:"models"`
-	ModelOptions   ModelOptions      `yaml:"model_options"`
-	Inference      InferenceConfig   `yaml:"inference"`
-	SystemPrompt   string            `yaml:"system_prompt"`
-	Search         SearchConfig      `yaml:"search"`
+	DefaultModel   string                  `yaml:"default_model"`
+	DefaultTimeout string                  `yaml:"default_timeout"`
+	DefaultGPU     int                     `yaml:"default_gpu"`
+	Models         map[string]ModelEntry   `yaml:"models"`
+	ModelOptions   ModelOptions            `yaml:"model_options"`
+	Inference      InferenceConfig         `yaml:"inference"`
+	SystemPrompt   string                  `yaml:"system_prompt"`
+	Search         SearchConfig            `yaml:"search"`
+	LlamaServer    LlamaServerConfig       `yaml:"llama_server"`
 }
 
 // ModelOptions configures how models are loaded.
@@ -48,7 +61,7 @@ type SearchConfig struct {
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	return &Config{
-		Models:         make(map[string]string),
+		Models:         make(map[string]ModelEntry),
 		DefaultTimeout: "30m",
 		ModelOptions: ModelOptions{
 			GPULayers: -1,
@@ -65,6 +78,9 @@ func Defaults() *Config {
 		Search: SearchConfig{
 			Provider:   "brave",
 			MaxResults: 5,
+		},
+		LlamaServer: LlamaServerConfig{
+			BinaryPath: "llama-server",
 		},
 	}
 }
@@ -94,7 +110,7 @@ func LoadFrom(path string) (*Config, error) {
 
 	// Ensure maps are initialized
 	if cfg.Models == nil {
-		cfg.Models = make(map[string]string)
+		cfg.Models = make(map[string]ModelEntry)
 	}
 
 	return cfg, nil
@@ -124,14 +140,11 @@ func WriteDefault() (string, error) {
 	return path, nil
 }
 
-// ResolveModel resolves a model path or alias to an absolute path.
-// If the input matches a configured alias, it returns the alias's path.
-// Otherwise it returns the input as-is (assumed to be a path).
-func (c *Config) ResolveModel(nameOrPath string) string {
-	if path, ok := c.Models[nameOrPath]; ok {
-		return path
-	}
-	return nameOrPath
+// ResolveModel resolves a model name to its registry entry.
+// Returns the entry and true if found, or a zero entry and false if not.
+func (c *Config) ResolveModel(name string) (ModelEntry, bool) {
+	entry, ok := c.Models[name]
+	return entry, ok
 }
 
 // SearchAPIKey returns the search API key, checking the env var as fallback.
@@ -154,12 +167,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// AddModel registers a named model alias.
-func (c *Config) AddModel(name, path string) {
+// AddModel registers a named model with path, context size, and split mode.
+func (c *Config) AddModel(name, path string, contextSize int, splitMode string) {
 	if c.Models == nil {
-		c.Models = make(map[string]string)
+		c.Models = make(map[string]ModelEntry)
 	}
-	c.Models[name] = path
+	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize, SplitMode: splitMode}
 }
 
 // RemoveModel deletes a named model alias. Returns false if the name was not found.
