@@ -8,12 +8,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/config"
+	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/internal"
 )
 
 var (
 	registerContextSize int
-	registerNVLink      bool
+	registerSplitMode   string
 )
 
 var registerCmd = &cobra.Command{
@@ -32,7 +33,7 @@ var unregisterCmd = &cobra.Command{
 
 func init() {
 	registerCmd.Flags().IntVarP(&registerContextSize, "context-size", "c", 8192, "Default context window size")
-	registerCmd.Flags().BoolVarP(&registerNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
+	registerCmd.Flags().StringVarP(&registerSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	modelsCmd.AddCommand(registerCmd)
 	modelsCmd.AddCommand(unregisterCmd)
 }
@@ -53,20 +54,26 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("model path does not exist: %s", absPath)
 	}
 
+	// Validate and normalize split mode.
+	splitMode, err := daemon.NormalizeSplitMode(registerSplitMode)
+	if err != nil {
+		return err
+	}
+
 	cfgPath := internal.ConfigPath()
 	cfg, err := config.LoadFrom(cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, absPath, registerContextSize, registerNVLink)
+	cfg.AddModel(name, absPath, registerContextSize, splitMode)
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	if registerNVLink {
-		fmt.Printf("Registered model %q -> %s (context: %d, nvlink)\n", name, absPath, registerContextSize)
+	if splitMode != "" {
+		fmt.Printf("Registered model %q -> %s (context: %d, split: %s)\n", name, absPath, registerContextSize, splitMode)
 	} else {
 		fmt.Printf("Registered model %q -> %s (context: %d)\n", name, absPath, registerContextSize)
 	}

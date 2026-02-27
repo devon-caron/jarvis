@@ -49,8 +49,25 @@ func NewLlamaServerBackend(cfg *config.Config) ModelBackend {
 	}
 }
 
+// NormalizeSplitMode validates and normalizes a split mode string.
+// Accepted inputs: "", "none", "l", "layer", "r", "row", "g", "graph".
+func NormalizeSplitMode(mode string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "none":
+		return "", nil
+	case "l", "layer":
+		return "layer", nil
+	case "r", "row":
+		return "row", nil
+	case "g", "graph":
+		return "graph", nil
+	default:
+		return "", fmt.Errorf("invalid split mode %q: must be l(ayer), r(ow), or g(raph)", mode)
+	}
+}
+
 // LoadModel spawns a llama-server process and waits for it to become healthy.
-func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, nvlink bool, parallel int) error {
+func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, splitMode string, parallel int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -81,14 +98,20 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int,
 	if b.cfg.ModelOptions.MLock {
 		args = append(args, "--mlock")
 	}
-	if nvlink {
+	splitMode, err = NormalizeSplitMode(splitMode)
+	if err != nil {
+		return err
+	}
+	if splitMode != "" {
 		if len(gpus) == 1 {
-			return fmt.Errorf("NVLink (-sm graph) requires multiple GPUs; use -g 0,1 or omit -g to use all GPUs")
+			return fmt.Errorf("split mode %q requires multiple GPUs; use -g 0,1 or omit -g", splitMode)
 		}
-		if err := checkNCCL(); err != nil {
-			return err
+		if splitMode == "graph" {
+			if err := checkNCCL(); err != nil {
+				return err
+			}
 		}
-		args = append(args, "-sm", "graph")
+		args = append(args, "-sm", splitMode)
 	}
 	if parallel > 0 {
 		args = append(args, "--parallel", strconv.Itoa(parallel))

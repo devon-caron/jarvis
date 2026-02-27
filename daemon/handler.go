@@ -147,10 +147,10 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		return
 	}
 
-	// Resolve model path, context size, and NVLink from registry or request.
+	// Resolve model path, context size, and split mode from registry or request.
 	var path string
 	var contextSize int
-	var nvlink bool
+	var splitMode string
 	if req.ModelPath != "" {
 		path = req.ModelPath
 	} else if req.Name != "" {
@@ -167,7 +167,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		}
 		path = entry.Path
 		contextSize = entry.ContextSize
-		nvlink = entry.NVLink
+		splitMode = entry.SplitMode
 	} else {
 		rw.Write(protocol.ErrorResponse("must specify a model name or path"))
 		return
@@ -182,9 +182,9 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		contextSize = h.Config.Inference.ContextSize
 	}
 
-	// Request-level NVLink overrides the registry entry.
-	if req.NVLink {
-		nvlink = true
+	// Request-level split mode overrides the registry entry.
+	if req.SplitMode != "" {
+		splitMode = req.SplitMode
 	}
 
 	// Determine model name
@@ -194,11 +194,11 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	}
 
 	// Determine GPUs.
-	// When NVLink is enabled and no GPUs are explicitly specified, leave gpus
+	// When a split mode is set and no GPUs are explicitly specified, leave gpus
 	// empty so CUDA_VISIBLE_DEVICES is not set and all GPUs are visible to
-	// llama-server (required for -sm graph).
+	// llama-server (required for multi-GPU split modes).
 	gpus := req.GPUs
-	if len(gpus) == 0 && !nvlink {
+	if len(gpus) == 0 && splitMode == "" {
 		gpus = []int{h.Config.DefaultGPU}
 	}
 
@@ -215,7 +215,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout, contextSize, nvlink, req.Parallel); err != nil {
+	if err := h.Registry.Load(name, path, gpus, timeout, contextSize, splitMode, req.Parallel); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

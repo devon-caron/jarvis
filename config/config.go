@@ -13,7 +13,7 @@ import (
 type ModelEntry struct {
 	Path        string `yaml:"path"`
 	ContextSize int    `yaml:"context_size,omitempty"` // 0 = use default (8192)
-	NVLink      bool   `yaml:"nvlink,omitempty"`       // use -sm graph for NVLink tensor parallelism
+	SplitMode   string `yaml:"split_mode,omitempty"`   // multi-GPU split mode: layer, row, or graph
 }
 
 // LlamaServerConfig configures the llama-server binary.
@@ -167,12 +167,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// AddModel registers a named model with path, context size, and NVLink flag.
-func (c *Config) AddModel(name, path string, contextSize int, nvlink bool) {
+// AddModel registers a named model with path, context size, and split mode.
+func (c *Config) AddModel(name, path string, contextSize int, splitMode string) {
 	if c.Models == nil {
 		c.Models = make(map[string]ModelEntry)
 	}
-	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize, NVLink: nvlink}
+	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize, SplitMode: splitMode}
 }
 
 // RemoveModel deletes a named model alias. Returns false if the name was not found.

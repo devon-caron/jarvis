@@ -73,9 +73,9 @@ func Run() error {
 		if !ok {
 			log.Printf("warning: default model %q not found in registry", cfg.DefaultModel)
 		} else {
-			// When NVLink is enabled, leave gpus empty so all GPUs are visible.
+			// When a split mode is set, leave gpus empty so all GPUs are visible.
 			var gpus []int
-			if !entry.NVLink {
+			if entry.SplitMode == "" {
 				gpus = []int{cfg.DefaultGPU}
 			}
 			var timeout time.Duration
@@ -86,8 +86,8 @@ func Run() error {
 			if contextSize == 0 {
 				contextSize = cfg.Inference.ContextSize
 			}
-			log.Printf("auto-loading default model: %s (context: %d, nvlink: %v)", entry.Path, contextSize, entry.NVLink)
-			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.NVLink, 0); err != nil {
+			log.Printf("auto-loading default model: %s (context: %d, split_mode: %q)", entry.Path, contextSize, entry.SplitMode)
+			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.SplitMode, 0); err != nil {
 				log.Printf("warning: failed to auto-load model: %v", err)
 			} else {
 				log.Printf("default model loaded successfully")

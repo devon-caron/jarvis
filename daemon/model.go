@@ -20,8 +20,8 @@ type ModelBackend interface {
 	// LoadModel loads a model from the given path onto the specified GPUs.
 	// gpus is the list of GPU device IDs (e.g. [0] or [0,1]).
 	// contextSize is the context window size (0 = backend default).
-	// nvlink enables -sm graph for NVLink tensor parallelism.
-	LoadModel(path string, gpus []int, contextSize int, nvlink bool, parallel int) error
+	// splitMode is the multi-GPU split mode: "layer", "row", or "graph" (empty = none).
+	LoadModel(path string, gpus []int, contextSize int, splitMode string, parallel int) error
 	// UnloadModel frees the currently loaded model.
 	UnloadModel() error
 	// IsLoaded returns true if a model is currently loaded.
@@ -135,7 +135,7 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 }
 
 // Load loads a model onto the specified GPUs with an optional inactivity timeout.
-func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, contextSize int, nvlink bool, parallel int) error {
+func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, contextSize int, splitMode string, parallel int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duratio
 
 	// Create backend and load
 	backend := r.newBackend(r.cfg)
-	if err := backend.LoadModel(path, gpus, contextSize, nvlink, parallel); err != nil {
+	if err := backend.LoadModel(path, gpus, contextSize, splitMode, parallel); err != nil {
 		return err
 	}
 

@@ -16,7 +16,7 @@ var (
 	loadPath        string
 	loadTimeout     string
 	loadContextSize int
-	loadNVLink      bool
+	loadSplitMode   string
 	loadParallel    int
 )
 
@@ -39,7 +39,7 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
 	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
-	loadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
+	loadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	loadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
 	rootCmd.AddCommand(loadCmd)
 }
@@ -98,7 +98,7 @@ func runLoad(cmd *cobra.Command, args []string) error {
 			GPUs:        gpus,
 			Timeout:     loadTimeout,
 			ContextSize: loadContextSize,
-			NVLink:      loadNVLink,
+			SplitMode:   loadSplitMode,
 			Parallel:    loadParallel,
 		},
 	}

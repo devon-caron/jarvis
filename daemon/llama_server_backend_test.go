@@ -58,7 +58,7 @@ func TestLlamaServerBackend_GetStatus_WhenNotLoaded(t *testing.T) {
 func TestLlamaServerBackend_LoadModel_BadPath(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewLlamaServerBackend(cfg).(*LlamaServerBackend)
-	err := b.LoadModel("/nonexistent/model.gguf", []int{0}, 8192, false, 0)
+	err := b.LoadModel("/nonexistent/model.gguf", []int{0}, 8192, "", 0)
 	if err == nil {
 		t.Error("LoadModel should error for nonexistent file")
 	}
@@ -367,5 +367,46 @@ func TestGetStatus_Loaded(t *testing.T) {
 	}
 	if status.GPUs[0].DeviceID != 0 || status.GPUs[1].DeviceID != 1 {
 		t.Errorf("GPU IDs = [%d, %d], want [0, 1]", status.GPUs[0].DeviceID, status.GPUs[1].DeviceID)
+	}
+}
+
+func TestNormalizeSplitMode(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"", "", false},
+		{"none", "", false},
+		{"l", "layer", false},
+		{"layer", "layer", false},
+		{"LAYER", "layer", false},
+		{"r", "row", false},
+		{"row", "row", false},
+		{"ROW", "row", false},
+		{"g", "graph", false},
+		{"graph", "graph", false},
+		{"GRAPH", "graph", false},
+		{" layer ", "layer", false},
+		{"invalid", "", true},
+		{"x", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := NormalizeSplitMode(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("NormalizeSplitMode(%q) expected error, got %q", tc.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("NormalizeSplitMode(%q) unexpected error: %v", tc.input, err)
+				return
+			}
+			if got != tc.want {
+				t.Errorf("NormalizeSplitMode(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
 	}
 }

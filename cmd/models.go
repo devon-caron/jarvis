@@ -27,7 +27,7 @@ func init() {
 	modelsLoadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	modelsLoadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", `Inactivity timeout (e.g. "30m", "1h")`)
 	modelsLoadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
-	modelsLoadCmd.Flags().BoolVarP(&loadNVLink, "nvlink", "n", false, "Enable NVLink tensor parallelism (-sm graph)")
+	modelsLoadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	modelsLoadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
 
 	// models unload — mirrors top-level unload
@@ -65,8 +65,8 @@ func runModelsLs(cmd *cobra.Command, args []string) error {
 	}
 	for name, entry := range cfg.Models {
 		flags := ""
-		if entry.NVLink {
-			flags += " (nvlink)"
+		if entry.SplitMode != "" {
+			flags += fmt.Sprintf(" (split: %s)", entry.SplitMode)
 		}
 		if entry.ContextSize > 0 {
 			fmt.Printf("  %-20s %s (ctx: %d)%s\n", name, entry.Path, entry.ContextSize, flags)

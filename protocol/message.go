@@ -49,7 +49,7 @@ type LoadRequest struct {
 	GPULayers   int    `json:"gpu_layers"`
 	Timeout     string `json:"timeout,omitempty"`
 	ContextSize int    `json:"context_size,omitempty"`
-	NVLink      bool   `json:"nvlink,omitempty"`
+	SplitMode   string `json:"split_mode,omitempty"`
 	Parallel    int    `json:"parallel,omitempty"`
 }
 
