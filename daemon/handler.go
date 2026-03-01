@@ -53,12 +53,14 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, searcher search.Sea
 }
 
 // Handle routes a request to the appropriate handler and writes responses.
-func (h *Handler) Handle(req *protocol.Request, rw *ResponseWriter) {
+// The context is cancelled when the client disconnects, allowing long-running
+// operations (like model loading) to be interrupted.
+func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *ResponseWriter) {
 	switch req.Type {
 	case protocol.ReqChat:
-		h.handleChat(req.Chat, rw)
+		h.handleChat(ctx, req.Chat, rw)
 	case protocol.ReqLoad:
-		h.handleLoad(req.Load, rw)
+		h.handleLoad(ctx, req.Load, rw)
 	case protocol.ReqUnload:
 		h.handleUnload(req.Unload, rw)
 	case protocol.ReqStatus:
@@ -70,7 +72,7 @@ func (h *Handler) Handle(req *protocol.Request, rw *ResponseWriter) {
 	}
 }
 
-func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
+func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw *ResponseWriter) {
 	if req == nil {
 		rw.Write(protocol.ErrorResponse("missing chat request payload"))
 		return
@@ -95,7 +97,7 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 			}
 		}
 		if userPrompt != "" {
-			results, err := h.Searcher.Search(context.Background(), userPrompt)
+			results, err := h.Searcher.Search(ctx, userPrompt)
 			if err == nil && len(results) > 0 {
 				searchCtx := search.FormatResults(results)
 				// Insert search context as system message before user messages
@@ -131,7 +133,7 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 	}
 
 	// Route to model by name, GPU, or auto-route.
-	err := h.Registry.Chat(context.Background(), req.Model, gpu, msgs, opts, func(token string) {
+	err := h.Registry.Chat(ctx, req.Model, gpu, msgs, opts, func(token string) {
 		rw.Write(protocol.DeltaResponse(token))
 	})
 	if err != nil {
@@ -141,7 +143,7 @@ func (h *Handler) handleChat(req *protocol.ChatRequest, rw *ResponseWriter) {
 	rw.Write(protocol.DoneResponse())
 }
 
-func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
+func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw *ResponseWriter) {
 	if req == nil {
 		rw.Write(protocol.ErrorResponse("missing load request payload"))
 		return
@@ -254,7 +256,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		TensorSplit:    tensorSplit,
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout, opts); err != nil {
+	if err := h.Registry.Load(ctx, name, path, gpus, timeout, opts); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

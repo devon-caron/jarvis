@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -95,7 +96,7 @@ func Run() error {
 				tensorSplit = cfg.ModelOptions.TensorSplit
 			}
 			log.Printf("auto-loading default model: %s (context: %d, split_mode: %q)", entry.Path, contextSize, entry.SplitMode)
-			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, LoadOpts{
+			if err := registry.Load(context.Background(), cfg.DefaultModel, entry.Path, gpus, timeout, LoadOpts{
 				ContextSize:    contextSize,
 				SplitMode:      entry.SplitMode,
 				FlashAttention: entry.FlashAttention || cfg.ModelOptions.FlashAttention,

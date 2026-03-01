@@ -28,7 +28,8 @@ type LoadOpts struct {
 // The real implementation wraps llama-server; tests use a mock.
 type ModelBackend interface {
 	// LoadModel loads a model from the given path onto the specified GPUs.
-	LoadModel(path string, gpus []int, opts LoadOpts) error
+	// The context allows cancellation (e.g. when the client disconnects).
+	LoadModel(ctx context.Context, path string, gpus []int, opts LoadOpts) error
 	// UnloadModel frees the currently loaded model.
 	UnloadModel() error
 	// IsLoaded returns true if a model is currently loaded.
@@ -127,6 +128,7 @@ type ModelRegistry struct {
 	mu         sync.RWMutex
 	slots      map[string]*ModelSlot // keyed by model name
 	gpuInUse   map[int]string        // gpu_id → model name
+	loading    map[string]bool       // models currently being loaded
 	newBackend func(*config.Config) ModelBackend
 	cfg        *config.Config
 }
@@ -136,41 +138,54 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 	return &ModelRegistry{
 		slots:      make(map[string]*ModelSlot),
 		gpuInUse:   make(map[int]string),
+		loading:    make(map[string]bool),
 		newBackend: newBackend,
 		cfg:        cfg,
 	}
 }
 
 // Load loads a model onto the specified GPUs with an optional inactivity timeout.
-func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
+// The mutex is released during the actual model load so that other daemon
+// operations (status, chat, unload) are not blocked.
+func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
+	// Phase 1: Reserve GPUs and name under lock.
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check GPU conflicts before doing anything irreversible.
 	for _, gpu := range gpus {
 		if owner, ok := r.gpuInUse[gpu]; ok {
+			r.mu.Unlock()
 			return fmt.Errorf("GPU %d already in use by model %q", gpu, owner)
 		}
 	}
-
-	// Reject duplicate names — caller must unload before reloading.
 	if _, ok := r.slots[name]; ok {
+		r.mu.Unlock()
 		return fmt.Errorf("model %q is already loaded; unload it first", name)
 	}
-
-	// Create backend and load
-	backend := r.newBackend(r.cfg)
-	if err := backend.LoadModel(path, gpus, opts); err != nil {
-		return err
+	if r.loading[name] {
+		r.mu.Unlock()
+		return fmt.Errorf("model %q is already being loaded", name)
 	}
-
-	// Create slot
-	slot := newModelSlot(name, backend, gpus, timeout, r.removeExpired)
-	r.slots[name] = slot
 	for _, gpu := range gpus {
 		r.gpuInUse[gpu] = name
 	}
+	r.loading[name] = true
+	r.mu.Unlock()
 
+	// Phase 2: Load model (no lock held — other operations proceed freely).
+	backend := r.newBackend(r.cfg)
+	err := backend.LoadModel(ctx, path, gpus, opts)
+
+	// Phase 3: Commit or rollback under lock.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.loading, name)
+	if err != nil {
+		for _, gpu := range gpus {
+			delete(r.gpuInUse, gpu)
+		}
+		return err
+	}
+	slot := newModelSlot(name, backend, gpus, timeout, r.removeExpired)
+	r.slots[name] = slot
 	return nil
 }
 

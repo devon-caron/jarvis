@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net"
 	"path/filepath"
@@ -21,7 +22,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	cfg := config.Defaults()
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
-	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	stopCh := make(chan struct{}, 1)
 	handler := NewHandler(registry, cfg, nil, stopCh)

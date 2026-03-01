@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/client"
+	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/protocol"
 )
 
@@ -77,6 +79,14 @@ func runLoad(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("invalid GPU ID %q: %w", s, err)
 			}
 			gpus = append(gpus, id)
+		}
+	}
+
+	// Warn about known ik_llama.cpp crash with graph + parallel.
+	if loadParallel > 0 && loadSplitMode != "" {
+		normalized, _ := daemon.NormalizeSplitMode(loadSplitMode)
+		if normalized == "graph" {
+			fmt.Fprintf(os.Stderr, "WARNING: combining --parallel with -n graph is experimental and may crash due to an ik_llama.cpp KV cache bug. Consider -n layer or -n row for parallel slots.\n")
 		}
 	}
 

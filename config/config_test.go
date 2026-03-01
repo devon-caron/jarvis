@@ -99,7 +99,8 @@ search:
   api_key: "test-key"
   max_results: 3
 llama_server:
-  binary_path: /usr/local/bin/llama-server
+  ik_binary_path: /opt/ik/llama-server
+  vanilla_binary_path: /opt/vanilla/llama-server
 `
 	os.WriteFile(cfgPath, []byte(yaml), 0644)
 
@@ -156,8 +157,11 @@ llama_server:
 	if cfg.Search.MaxResults != 3 {
 		t.Errorf("Search.MaxResults = %d, want 3", cfg.Search.MaxResults)
 	}
-	if cfg.LlamaServer.BinaryPath != "/usr/local/bin/llama-server" {
-		t.Errorf("LlamaServer.BinaryPath = %q, want /usr/local/bin/llama-server", cfg.LlamaServer.BinaryPath)
+	if cfg.LlamaServer.IKBinaryPath != "/opt/ik/llama-server" {
+		t.Errorf("LlamaServer.IKBinaryPath = %q, want /opt/ik/llama-server", cfg.LlamaServer.IKBinaryPath)
+	}
+	if cfg.LlamaServer.VanillaBinaryPath != "/opt/vanilla/llama-server" {
+		t.Errorf("LlamaServer.VanillaBinaryPath = %q, want /opt/vanilla/llama-server", cfg.LlamaServer.VanillaBinaryPath)
 	}
 }
 
@@ -424,5 +428,95 @@ func TestSave_RoundTrip(t *testing.T) {
 	}
 	if loaded.Models["small"].Path != "/models/small.gguf" {
 		t.Errorf("Models[small].Path = %q", loaded.Models["small"].Path)
+	}
+}
+
+func TestResolveBinary(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       LlamaServerConfig
+		splitMode string
+		want      string
+	}{
+		{
+			name:      "all empty returns default",
+			cfg:       LlamaServerConfig{},
+			splitMode: "",
+			want:      "llama-server",
+		},
+		{
+			name:      "no split mode uses vanilla_binary_path",
+			cfg:       LlamaServerConfig{VanillaBinaryPath: "/vanilla"},
+			splitMode: "",
+			want:      "/vanilla",
+		},
+		{
+			name:      "graph uses ik_binary_path",
+			cfg:       LlamaServerConfig{IKBinaryPath: "/ik"},
+			splitMode: "graph",
+			want:      "/ik",
+		},
+		{
+			name:      "graph falls back to default when ik not set",
+			cfg:       LlamaServerConfig{},
+			splitMode: "graph",
+			want:      "llama-server",
+		},
+		{
+			name:      "layer uses vanilla_binary_path",
+			cfg:       LlamaServerConfig{VanillaBinaryPath: "/vanilla"},
+			splitMode: "layer",
+			want:      "/vanilla",
+		},
+		{
+			name:      "row uses vanilla_binary_path",
+			cfg:       LlamaServerConfig{VanillaBinaryPath: "/vanilla"},
+			splitMode: "row",
+			want:      "/vanilla",
+		},
+		{
+			name:      "layer falls back to default when vanilla not set",
+			cfg:       LlamaServerConfig{},
+			splitMode: "layer",
+			want:      "llama-server",
+		},
+		{
+			name:      "both set, graph picks ik",
+			cfg:       LlamaServerConfig{IKBinaryPath: "/ik", VanillaBinaryPath: "/vanilla"},
+			splitMode: "graph",
+			want:      "/ik",
+		},
+		{
+			name:      "both set, row picks vanilla",
+			cfg:       LlamaServerConfig{IKBinaryPath: "/ik", VanillaBinaryPath: "/vanilla"},
+			splitMode: "row",
+			want:      "/vanilla",
+		},
+		{
+			name:      "both set, no split mode picks vanilla",
+			cfg:       LlamaServerConfig{IKBinaryPath: "/ik", VanillaBinaryPath: "/vanilla"},
+			splitMode: "",
+			want:      "/vanilla",
+		},
+		{
+			name:      "only ik set, no split mode falls back to default",
+			cfg:       LlamaServerConfig{IKBinaryPath: "/ik"},
+			splitMode: "",
+			want:      "llama-server",
+		},
+		{
+			name:      "only vanilla set, graph falls back to default",
+			cfg:       LlamaServerConfig{VanillaBinaryPath: "/vanilla"},
+			splitMode: "graph",
+			want:      "llama-server",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.ResolveBinary(tt.splitMode)
+			if got != tt.want {
+				t.Errorf("ResolveBinary(%q) = %q, want %q", tt.splitMode, got, tt.want)
+			}
+		})
 	}
 }
