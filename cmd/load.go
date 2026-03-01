@@ -12,12 +12,15 @@ import (
 )
 
 var (
-	loadGPUs        string
-	loadPath        string
-	loadTimeout     string
-	loadContextSize int
-	loadSplitMode   string
-	loadParallel    int
+	loadGPUs           string
+	loadPath           string
+	loadTimeout        string
+	loadContextSize    int
+	loadSplitMode      string
+	loadParallel       int
+	loadFlashAttention bool
+	loadBatchSize      int
+	loadTensorSplit    string
 )
 
 var loadCmd = &cobra.Command{
@@ -41,6 +44,9 @@ func init() {
 	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
 	loadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	loadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
+	loadCmd.Flags().BoolVarP(&loadFlashAttention, "flash-attn", "f", false, "Enable flash attention")
+	loadCmd.Flags().IntVarP(&loadBatchSize, "batch-size", "B", 0, "Micro-batch size for GPU utilization (0 = server default)")
+	loadCmd.Flags().StringVarP(&loadTensorSplit, "tensor-split", "T", "", "Custom weight distribution across GPUs (e.g. \"1,1\")")
 	rootCmd.AddCommand(loadCmd)
 }
 
@@ -93,13 +99,16 @@ func runLoad(cmd *cobra.Command, args []string) error {
 	req := &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{
-			ModelPath:   modelPath,
-			Name:        modelName,
-			GPUs:        gpus,
-			Timeout:     loadTimeout,
-			ContextSize: loadContextSize,
-			SplitMode:   loadSplitMode,
-			Parallel:    loadParallel,
+			ModelPath:      modelPath,
+			Name:           modelName,
+			GPUs:           gpus,
+			Timeout:        loadTimeout,
+			ContextSize:    loadContextSize,
+			SplitMode:      loadSplitMode,
+			Parallel:       loadParallel,
+			FlashAttention: loadFlashAttention,
+			BatchSize:      loadBatchSize,
+			TensorSplit:    loadTensorSplit,
 		},
 	}
 

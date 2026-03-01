@@ -151,6 +151,7 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	var path string
 	var contextSize int
 	var splitMode string
+	var entry config.ModelEntry
 	if req.ModelPath != "" {
 		path = req.ModelPath
 	} else if req.Name != "" {
@@ -159,7 +160,8 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		if err == nil {
 			h.Config = cfg
 		}
-		entry, ok := h.Config.Models[req.Name]
+		var ok bool
+		entry, ok = h.Config.Models[req.Name]
 		if !ok {
 			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
 				"model %q not found in registry; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
@@ -185,6 +187,34 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 	// Request-level split mode overrides the registry entry.
 	if req.SplitMode != "" {
 		splitMode = req.SplitMode
+	}
+
+	// Flash attention: request > model entry > global config.
+	flashAttention := req.FlashAttention
+	if !flashAttention {
+		if entry.FlashAttention {
+			flashAttention = true
+		} else {
+			flashAttention = h.Config.ModelOptions.FlashAttention
+		}
+	}
+
+	// Batch size: request > model entry > global config.
+	batchSize := req.BatchSize
+	if batchSize == 0 {
+		batchSize = entry.BatchSize
+	}
+	if batchSize == 0 {
+		batchSize = h.Config.ModelOptions.BatchSize
+	}
+
+	// Tensor split: request > model entry > global config.
+	tensorSplit := req.TensorSplit
+	if tensorSplit == "" {
+		tensorSplit = entry.TensorSplit
+	}
+	if tensorSplit == "" {
+		tensorSplit = h.Config.ModelOptions.TensorSplit
 	}
 
 	// Determine model name
@@ -215,7 +245,16 @@ func (h *Handler) handleLoad(req *protocol.LoadRequest, rw *ResponseWriter) {
 		timeout, _ = time.ParseDuration(h.Config.DefaultTimeout)
 	}
 
-	if err := h.Registry.Load(name, path, gpus, timeout, contextSize, splitMode, req.Parallel); err != nil {
+	opts := LoadOpts{
+		ContextSize:    contextSize,
+		SplitMode:      splitMode,
+		Parallel:       req.Parallel,
+		FlashAttention: flashAttention,
+		BatchSize:      batchSize,
+		TensorSplit:    tensorSplit,
+	}
+
+	if err := h.Registry.Load(name, path, gpus, timeout, opts); err != nil {
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err.Error())))
 		return
 	}

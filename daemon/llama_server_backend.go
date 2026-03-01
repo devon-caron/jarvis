@@ -67,7 +67,7 @@ func NormalizeSplitMode(mode string) (string, error) {
 }
 
 // LoadModel spawns a llama-server process and waits for it to become healthy.
-func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int, splitMode string, parallel int) error {
+func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -93,12 +93,12 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
 		"-ngl", "999",
-		"-c", strconv.Itoa(contextSize),
+		"-c", strconv.Itoa(opts.ContextSize),
 	}
 	if b.cfg.ModelOptions.MLock {
 		args = append(args, "--mlock")
 	}
-	splitMode, err = NormalizeSplitMode(splitMode)
+	splitMode, err := NormalizeSplitMode(opts.SplitMode)
 	if err != nil {
 		return err
 	}
@@ -113,8 +113,17 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, contextSize int,
 		}
 		args = append(args, "-sm", splitMode)
 	}
-	if parallel > 0 {
-		args = append(args, "--parallel", strconv.Itoa(parallel))
+	if opts.Parallel > 0 {
+		args = append(args, "--parallel", strconv.Itoa(opts.Parallel))
+	}
+	if opts.FlashAttention {
+		args = append(args, "-fa", "on")
+	}
+	if opts.BatchSize > 0 {
+		args = append(args, "-ub", strconv.Itoa(opts.BatchSize))
+	}
+	if opts.TensorSplit != "" {
+		args = append(args, "-ts", opts.TensorSplit)
 	}
 
 	cmd := exec.Command(binary, args...)

@@ -86,8 +86,22 @@ func Run() error {
 			if contextSize == 0 {
 				contextSize = cfg.Inference.ContextSize
 			}
+			batchSize := entry.BatchSize
+			if batchSize == 0 {
+				batchSize = cfg.ModelOptions.BatchSize
+			}
+			tensorSplit := entry.TensorSplit
+			if tensorSplit == "" {
+				tensorSplit = cfg.ModelOptions.TensorSplit
+			}
 			log.Printf("auto-loading default model: %s (context: %d, split_mode: %q)", entry.Path, contextSize, entry.SplitMode)
-			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, contextSize, entry.SplitMode, 0); err != nil {
+			if err := registry.Load(cfg.DefaultModel, entry.Path, gpus, timeout, LoadOpts{
+				ContextSize:    contextSize,
+				SplitMode:      entry.SplitMode,
+				FlashAttention: entry.FlashAttention || cfg.ModelOptions.FlashAttention,
+				BatchSize:      batchSize,
+				TensorSplit:    tensorSplit,
+			}); err != nil {
 				log.Printf("warning: failed to auto-load model: %v", err)
 			} else {
 				log.Printf("default model loaded successfully")
