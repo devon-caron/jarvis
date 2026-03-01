@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -91,6 +92,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	// Create a context that cancels when the client disconnects.
+	// After the request line, the client sends no more data — it only waits
+	// for responses. A read returning means the connection was closed (^C).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		buf := make([]byte, 1)
+		conn.Read(buf)
+		cancel()
+	}()
+
 	rw := NewResponseWriter(conn)
-	s.handler.Handle(req, rw)
+	s.handler.Handle(ctx, req, rw)
 }

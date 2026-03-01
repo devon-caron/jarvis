@@ -19,9 +19,30 @@ type ModelEntry struct {
 	TensorSplit    string `yaml:"tensor_split,omitempty"`    // GPU weight distribution (e.g. "1,1")
 }
 
-// LlamaServerConfig configures the llama-server binary.
+// LlamaServerConfig configures the llama-server binaries.
+// IKBinaryPath is used for graph split mode (ik_llama.cpp with NCCL support).
+// VanillaBinaryPath is used for layer/row split modes and as the default when
+// no split mode is specified.
 type LlamaServerConfig struct {
-	BinaryPath string `yaml:"binary_path"`
+	IKBinaryPath      string `yaml:"ik_binary_path"`
+	VanillaBinaryPath string `yaml:"vanilla_binary_path"`
+}
+
+// ResolveBinary returns the llama-server binary path for the given split mode.
+// "graph" uses IKBinaryPath, all other modes use VanillaBinaryPath.
+// Returns "llama-server" (PATH lookup) if the resolved field is empty.
+func (l LlamaServerConfig) ResolveBinary(splitMode string) string {
+	var binary string
+	switch splitMode {
+	case "graph":
+		binary = l.IKBinaryPath
+	default:
+		binary = l.VanillaBinaryPath
+	}
+	if binary == "" {
+		binary = "llama-server"
+	}
+	return binary
 }
 
 // Config holds all jarvis configuration.
@@ -85,7 +106,8 @@ func Defaults() *Config {
 			MaxResults: 5,
 		},
 		LlamaServer: LlamaServerConfig{
-			BinaryPath: "llama-server",
+			IKBinaryPath:      "",
+			VanillaBinaryPath: "",
 		},
 	}
 }

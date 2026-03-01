@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
@@ -89,10 +90,14 @@ func (c *Client) StreamChat(req *protocol.Request, onDelta func(string)) error {
 }
 
 // SendAndWaitOK sends a request and waits for an OK or error response.
+// A 3-minute read deadline prevents the client from hanging indefinitely
+// if the daemon crashes or becomes unresponsive.
 func (c *Client) SendAndWaitOK(req *protocol.Request) error {
 	if err := c.Send(req); err != nil {
 		return err
 	}
+	c.conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
+	defer c.conn.SetReadDeadline(time.Time{})
 	resp, err := c.ReadResponse()
 	if err != nil {
 		return err

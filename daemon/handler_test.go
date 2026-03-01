@@ -54,8 +54,8 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 
 func TestHandler_Chat(t *testing.T) {
 	h, backend := newTestHandler(t)
-	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -67,7 +67,7 @@ func TestHandler_Chat(t *testing.T) {
 		},
 	}
 
-	h.Handle(req, rw)
+	h.Handle(context.Background(),req, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) < 2 {
@@ -105,7 +105,7 @@ func TestHandler_Chat_NoModel(t *testing.T) {
 		},
 	}
 
-	h.Handle(req, rw)
+	h.Handle(context.Background(),req, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 {
@@ -122,7 +122,7 @@ func TestHandler_Chat_NilPayload(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqChat}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqChat}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -138,12 +138,12 @@ func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages: []protocol.ChatMessage{{Role: "user", Content: "hi"}},
@@ -169,12 +169,12 @@ func TestHandler_Chat_WebSearch(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
@@ -197,12 +197,12 @@ func TestHandler_Chat_WebSearch_ZeroResults(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
@@ -224,12 +224,12 @@ func TestHandler_Chat_WebSearch_Error(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
@@ -264,13 +264,13 @@ func TestHandler_Chat_WithModelName(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages: []protocol.ChatMessage{{Role: "user", Content: "hi"}},
@@ -294,7 +294,7 @@ func TestHandler_Load(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test"},
 	}, rw)
@@ -311,7 +311,7 @@ func TestHandler_Load_NilPayload(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqLoad}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqLoad}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -335,7 +335,7 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{Name: "big"},
 	}, rw)
@@ -351,12 +351,12 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 
 func TestHandler_Unload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type:   protocol.ReqUnload,
 		Unload: &protocol.UnloadRequest{Name: "test"},
 	}, rw)
@@ -373,7 +373,7 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqUnload}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqUnload}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -383,12 +383,12 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 
 func TestHandler_Status(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqStatus}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
@@ -416,7 +416,7 @@ func TestHandler_Status_NoModel(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqStatus}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
@@ -433,7 +433,7 @@ func TestHandler_Stop(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqStop}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStop}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
@@ -455,7 +455,7 @@ func TestHandler_UnknownType(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: "bogus"}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: "bogus"}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -469,7 +469,7 @@ func TestHandler_Load_WithTimeout(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", Timeout: "30m"},
 	}, rw)
@@ -495,7 +495,7 @@ func TestHandler_Load_InvalidTimeout(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", Timeout: "badvalue"},
 	}, rw)
@@ -517,7 +517,7 @@ func TestHandler_Load_DefaultTimeout(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test"},
 	}, rw)
@@ -542,7 +542,7 @@ func TestHandler_Load_WithGPUs(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1, 2}},
 	}, rw)
@@ -560,7 +560,7 @@ func TestHandler_Load_DefaultName(t *testing.T) {
 	rw := NewResponseWriter(&buf)
 
 	// No Name field — should default to ModelPath
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf"},
 	}, rw)
@@ -593,13 +593,13 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	gpu := 0
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type:   protocol.ReqUnload,
 		Unload: &protocol.UnloadRequest{GPU: &gpu},
 	}, rw)
@@ -617,13 +617,13 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 
 func TestHandler_Unload_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
 	// nil unload payload — should still work with single model
-	h.Handle(&protocol.Request{Type: protocol.ReqUnload}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqUnload}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
@@ -645,13 +645,13 @@ func TestHandler_Status_MultiModel(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{Type: protocol.ReqStatus}, rw)
+	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
@@ -674,7 +674,7 @@ func TestHandler_Load_GPUAssignment_SingleGPU(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1}},
 	}, rw)
@@ -695,7 +695,7 @@ func TestHandler_Load_GPUAssignment_MultiGPU(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(&protocol.Request{
+	h.Handle(context.Background(),&protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{0, 1}},
 	}, rw)

@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,13 +20,21 @@ type mockBackend struct {
 	path       string
 	loadedGPUs []int
 	loadErr    error
+	loadDelay  time.Duration
 	unloadErr  error
 	chatErr    error
 	chatDelay  time.Duration
 	chatCalls  atomic.Int32
 }
 
-func (m *mockBackend) LoadModel(path string, gpus []int, opts LoadOpts) error {
+func (m *mockBackend) LoadModel(ctx context.Context, path string, gpus []int, opts LoadOpts) error {
+	if m.loadDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("load cancelled")
+		case <-time.After(m.loadDelay):
+		}
+	}
 	if m.loadErr != nil {
 		return m.loadErr
 	}
@@ -98,7 +108,7 @@ func newTestRegistry(t *testing.T, backends ...*mockBackend) *ModelRegistry {
 
 func TestModelSlot_Chat_ResetsTimer(t *testing.T) {
 	backend := &mockBackend{}
-	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
 
 	expired := make(chan string, 1)
 	slot := newModelSlot("test", backend, []int{0}, 100*time.Millisecond, func(name string) {
@@ -137,7 +147,7 @@ func TestModelSlot_Chat_ResetsTimer(t *testing.T) {
 
 func TestModelSlot_Unload_StopsTimer(t *testing.T) {
 	backend := &mockBackend{}
-	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
 
 	expired := make(chan string, 1)
 	slot := newModelSlot("test", backend, []int{0}, 50*time.Millisecond, func(name string) {
@@ -157,7 +167,7 @@ func TestModelSlot_Unload_StopsTimer(t *testing.T) {
 
 func TestModelSlot_Chat_NoTimer(t *testing.T) {
 	backend := &mockBackend{}
-	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
 
 	// timeout=0 means no timer
 	slot := newModelSlot("test", backend, []int{0}, 0, nil)
@@ -188,7 +198,7 @@ func TestModelSlot_Chat_NotLoaded(t *testing.T) {
 
 func TestModelSlot_Status(t *testing.T) {
 	backend := &mockBackend{}
-	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
 
 	slot := newModelSlot("mymodel", backend, []int{0, 1}, 30*time.Minute, nil)
 	info := slot.Status()
@@ -213,7 +223,7 @@ func TestRegistry_LoadUnload(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	if err := reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{}); err != nil {
+	if err := reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
@@ -239,9 +249,9 @@ func TestRegistry_Load_DuplicateName_Errors(t *testing.T) {
 	b1 := &mockBackend{}
 	reg := newTestRegistry(t, b1)
 
-	reg.Load("test", "/model1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model1.gguf", []int{0}, 0, LoadOpts{})
 
-	err := reg.Load("test", "/model2.gguf", []int{1}, 0, LoadOpts{})
+	err := reg.Load(context.Background(), "test", "/model2.gguf", []int{1}, 0, LoadOpts{})
 	if err == nil {
 		t.Fatal("expected error when loading under an already-loaded name")
 	}
@@ -251,9 +261,9 @@ func TestRegistry_LoadSameGPU_Conflict(t *testing.T) {
 	b1 := &mockBackend{}
 	reg := newTestRegistry(t, b1)
 
-	reg.Load("test", "/model1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model1.gguf", []int{0}, 0, LoadOpts{})
 
-	err := reg.Load("test", "/model1.gguf", []int{0}, 0, LoadOpts{})
+	err := reg.Load(context.Background(), "test", "/model1.gguf", []int{0}, 0, LoadOpts{})
 	if err == nil {
 		t.Fatal("expected GPU conflict error when reloading same model on same GPU")
 	}
@@ -263,9 +273,9 @@ func TestRegistry_GPUConflict(t *testing.T) {
 	b1 := &mockBackend{}
 	reg := newTestRegistry(t, b1)
 
-	reg.Load("model1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "model1", "/m1.gguf", []int{0}, 0, LoadOpts{})
 
-	err := reg.Load("model2", "/m2.gguf", []int{0}, 0, LoadOpts{})
+	err := reg.Load(context.Background(), "model2", "/m2.gguf", []int{0}, 0, LoadOpts{})
 	if err == nil {
 		t.Fatal("expected GPU conflict error")
 	}
@@ -276,10 +286,10 @@ func TestRegistry_MultiGPU_NoConflict(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	if err := reg.Load("model1", "/m1.gguf", []int{0}, 0, LoadOpts{}); err != nil {
+	if err := reg.Load(context.Background(), "model1", "/m1.gguf", []int{0}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("Load model1: %v", err)
 	}
-	if err := reg.Load("model2", "/m2.gguf", []int{1}, 0, LoadOpts{}); err != nil {
+	if err := reg.Load(context.Background(), "model2", "/m2.gguf", []int{1}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("Load model2: %v", err)
 	}
 
@@ -293,7 +303,7 @@ func TestRegistry_LoadError(t *testing.T) {
 	backend := &mockBackend{loadErr: errors.New("load failed")}
 	reg := newTestRegistry(t, backend)
 
-	err := reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	err := reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 	if err == nil {
 		t.Error("expected load error")
 	}
@@ -317,7 +327,7 @@ func TestRegistry_UnloadEmptyName_SingleModel(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	// Unload without name when only one model is loaded
 	if err := reg.Unload(""); err != nil {
@@ -335,8 +345,8 @@ func TestRegistry_UnloadEmptyName_MultipleModels(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	err := reg.Unload("")
 	if err == nil {
@@ -366,7 +376,7 @@ func TestRegistry_Chat_SingleModel_AutoRoute(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var tokens []string
 	err := reg.Chat(context.Background(), "", -1,
@@ -387,8 +397,8 @@ func TestRegistry_Chat_ExplicitName(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	err := reg.Chat(context.Background(), "m2", -1,
 		[]protocol.ChatMessage{{Role: "user", Content: "hi"}},
@@ -407,7 +417,7 @@ func TestRegistry_Chat_ExplicitName_NotFound(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	err := reg.Chat(context.Background(), "nonexistent", -1,
 		nil, protocol.InferenceOpts{}, func(string) {},
@@ -432,8 +442,8 @@ func TestRegistry_Chat_DefaultGPU_Routing(t *testing.T) {
 	}
 	reg := NewModelRegistry(cfg, factory)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	// Chat without name should route to default GPU (1) = m2
 	err := reg.Chat(context.Background(), "", -1,
@@ -467,8 +477,8 @@ func TestRegistry_Chat_DefaultGPU_NoModelOnDefault(t *testing.T) {
 	}
 	reg := NewModelRegistry(cfg, factory)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	// No model on GPU 2 — should error
 	err := reg.Chat(context.Background(), "", -1,
@@ -483,7 +493,7 @@ func TestRegistry_Chat_ChatError(t *testing.T) {
 	backend := &mockBackend{chatErr: errors.New("chat failed")}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	err := reg.Chat(context.Background(), "", -1,
 		nil, protocol.InferenceOpts{}, func(string) {},
@@ -497,7 +507,7 @@ func TestRegistry_ConcurrentChat(t *testing.T) {
 	backend := &mockBackend{chatDelay: 10 * time.Millisecond}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -530,8 +540,8 @@ func TestRegistry_Status(t *testing.T) {
 	}
 
 	// With models
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 30*time.Minute, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 30*time.Minute, LoadOpts{})
 
 	models = reg.Status()
 	if len(models) != 2 {
@@ -544,8 +554,8 @@ func TestRegistry_Shutdown(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	reg.Shutdown()
 
@@ -559,7 +569,7 @@ func TestRegistry_TimerExpiry(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 50*time.Millisecond, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 50*time.Millisecond, LoadOpts{})
 
 	// Model should be loaded
 	models := reg.Status()
@@ -581,8 +591,8 @@ func TestRegistry_MultiModelIndependentUnload(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 50*time.Millisecond, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{}) // no timeout
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 50*time.Millisecond, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{}) // no timeout
 
 	// Wait for m1 to expire
 	time.Sleep(150 * time.Millisecond)
@@ -612,7 +622,7 @@ func TestRegistry_UnloadError(t *testing.T) {
 	backend := &mockBackend{unloadErr: errors.New("unload failed")}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	err := reg.Unload("test")
 	if err == nil {
@@ -625,10 +635,10 @@ func TestRegistry_GPUConflict_MultiGPU(t *testing.T) {
 	reg := newTestRegistry(t, b1)
 
 	// Load on GPUs 0 and 1
-	reg.Load("m1", "/m1.gguf", []int{0, 1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0, 1}, 0, LoadOpts{})
 
 	// Try to load on GPU 1 — should conflict
-	err := reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	err := reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 	if err == nil {
 		t.Error("expected GPU conflict for overlapping GPU")
 	}
@@ -639,8 +649,8 @@ func TestRegistry_Chat_GPURouting(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	// Route explicitly to GPU 1 → should hit m2
 	err := reg.Chat(context.Background(), "", 1,
@@ -664,8 +674,8 @@ func TestRegistry_UnloadByGPU(t *testing.T) {
 	b2 := &mockBackend{}
 	reg := newTestRegistry(t, b1, b2)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	reg.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	if err := reg.UnloadByGPU(0); err != nil {
 		t.Fatalf("UnloadByGPU(0): %v", err)
@@ -690,7 +700,7 @@ func TestRegistry_Chat_GPURouting_NoModel(t *testing.T) {
 	backend := &mockBackend{}
 	reg := newTestRegistry(t, backend)
 
-	reg.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
 
 	err := reg.Chat(context.Background(), "", 1,
 		nil, protocol.InferenceOpts{}, func(string) {},
@@ -698,4 +708,113 @@ func TestRegistry_Chat_GPURouting_NoModel(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when no model on requested GPU")
 	}
+}
+
+func TestRegistry_Load_ContextCancelled(t *testing.T) {
+	backend := &mockBackend{loadDelay: 5 * time.Second}
+	reg := newTestRegistry(t, backend)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately to trigger cancellation during load.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	err := reg.Load(ctx, "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Errorf("context should be cancelled, got: %v", ctx.Err())
+	}
+
+	// GPUs should be cleaned up after cancelled load.
+	models := reg.Status()
+	if len(models) != 0 {
+		t.Errorf("expected 0 models after cancelled load, got %d", len(models))
+	}
+
+	// GPU should be free for reuse.
+	backend2 := &mockBackend{}
+	reg2 := newTestRegistry(t, backend2)
+	if err := reg2.Load(context.Background(), "test2", "/model2.gguf", []int{0}, 0, LoadOpts{}); err != nil {
+		t.Fatalf("GPU should be free after cancelled load: %v", err)
+	}
+}
+
+func TestRegistry_Load_AlreadyLoading(t *testing.T) {
+	backend := &mockBackend{loadDelay: 1 * time.Second}
+	reg := newTestRegistry(t, backend)
+
+	// Start a load in the background.
+	done := make(chan error, 1)
+	go func() {
+		done <- reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	}()
+	// Give it time to enter loading state.
+	time.Sleep(20 * time.Millisecond)
+
+	// Second load with same name should be rejected.
+	err := reg.Load(context.Background(), "test", "/model2.gguf", []int{1}, 0, LoadOpts{})
+	if err == nil {
+		t.Fatal("expected error for concurrent load of same model name")
+	}
+	if !strings.Contains(err.Error(), "already being loaded") {
+		t.Errorf("expected 'already being loaded' error, got: %v", err)
+	}
+
+	<-done // Let the first load finish.
+}
+
+func TestRegistry_Load_Rollback_GPUs(t *testing.T) {
+	backend := &mockBackend{loadErr: fmt.Errorf("simulated failure")}
+	reg := newTestRegistry(t, backend)
+
+	err := reg.Load(context.Background(), "test", "/model.gguf", []int{0, 1}, 0, LoadOpts{})
+	if err == nil {
+		t.Fatal("expected load error")
+	}
+
+	// GPUs should be free after failed load.
+	models := reg.Status()
+	if len(models) != 0 {
+		t.Errorf("expected 0 models after failed load, got %d", len(models))
+	}
+
+	// Another model should be able to use the same GPUs.
+	backend2 := &mockBackend{}
+	reg2 := newTestRegistry(t, backend2)
+	if err := reg2.Load(context.Background(), "test2", "/model2.gguf", []int{0, 1}, 0, LoadOpts{}); err != nil {
+		t.Fatalf("GPUs should be free after failed load: %v", err)
+	}
+}
+
+func TestRegistry_StatusDuringLoad(t *testing.T) {
+	backend := &mockBackend{loadDelay: 200 * time.Millisecond}
+	reg := newTestRegistry(t, backend)
+
+	// Start a load in the background.
+	done := make(chan error, 1)
+	go func() {
+		done <- reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	}()
+	// Give it time to enter loading state.
+	time.Sleep(20 * time.Millisecond)
+
+	// Status should not block — the mutex is not held during load.
+	statusDone := make(chan struct{})
+	go func() {
+		reg.Status()
+		close(statusDone)
+	}()
+
+	select {
+	case <-statusDone:
+		// Good — status returned while load is in progress.
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Status() blocked during model loading — mutex should not be held")
+	}
+
+	<-done
 }

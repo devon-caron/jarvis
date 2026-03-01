@@ -67,7 +67,8 @@ func NormalizeSplitMode(mode string) (string, error) {
 }
 
 // LoadModel spawns a llama-server process and waits for it to become healthy.
-func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) error {
+// The context allows cancellation (e.g. when the client disconnects during loading).
+func (b *LlamaServerBackend) LoadModel(ctx context.Context, path string, gpus []int, opts LoadOpts) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -81,10 +82,28 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) e
 		return fmt.Errorf("failed to allocate port: %w", err)
 	}
 
-	// Resolve llama-server binary path.
-	binary := b.cfg.LlamaServer.BinaryPath
-	if binary == "" {
-		binary = "llama-server"
+	// Normalize split mode early so we can use it for binary resolution.
+	normalizedMode, err := NormalizeSplitMode(opts.SplitMode)
+	if err != nil {
+		return err
+	}
+
+	// Resolve llama-server binary path based on split mode.
+	binary := b.cfg.LlamaServer.ResolveBinary(normalizedMode)
+
+	// Validate the binary exists before attempting to spawn.
+	if _, err := exec.LookPath(binary); err != nil {
+		if normalizedMode == "graph" {
+			return fmt.Errorf("llama-server binary not found for graph mode: set llama_server.ik_binary_path in config")
+		} else if normalizedMode != "" {
+			return fmt.Errorf("llama-server binary not found for %s mode: set llama_server.vanilla_binary_path in config", normalizedMode)
+		}
+		return fmt.Errorf("llama-server binary %q not found: set llama_server.vanilla_binary_path in config or add llama-server to PATH", binary)
+	}
+
+	// Warn about known ik_llama.cpp crash with graph + parallel.
+	if normalizedMode == "graph" && opts.Parallel > 0 {
+		log.Printf("WARNING: -sm graph with --parallel %d may crash due to ik_llama.cpp KV cache bug", opts.Parallel)
 	}
 
 	// Build command args.
@@ -98,20 +117,16 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) e
 	if b.cfg.ModelOptions.MLock {
 		args = append(args, "--mlock")
 	}
-	splitMode, err := NormalizeSplitMode(opts.SplitMode)
-	if err != nil {
-		return err
-	}
-	if splitMode != "" {
+	if normalizedMode != "" {
 		if len(gpus) == 1 {
-			return fmt.Errorf("split mode %q requires multiple GPUs; use -g 0,1 or omit -g", splitMode)
+			return fmt.Errorf("split mode %q requires multiple GPUs; use -g 0,1 or omit -g", normalizedMode)
 		}
-		if splitMode == "graph" {
+		if normalizedMode == "graph" {
 			if err := checkNCCL(); err != nil {
 				return err
 			}
 		}
-		args = append(args, "-sm", splitMode)
+		args = append(args, "-sm", normalizedMode)
 	}
 	if opts.Parallel > 0 {
 		args = append(args, "--parallel", strconv.Itoa(opts.Parallel))
@@ -148,16 +163,19 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) e
 
 	// Monitor process exit in a goroutine so we can detect startup failures early.
 	exitCh := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		exitCh <- cmd.Wait()
 	}()
 
 	// Poll /health until ready.
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
-	if err := b.waitForHealth(healthURL, exitCh, &stderrBuf); err != nil {
+	if err := b.waitForHealth(ctx, healthURL, exitCh, &stderrBuf); err != nil {
 		// Kill the process if it's still running.
 		cmd.Process.Signal(syscall.SIGKILL)
-		<-exitCh
+		wg.Wait()
 		return err
 	}
 
@@ -169,14 +187,16 @@ func (b *LlamaServerBackend) LoadModel(path string, gpus []int, opts LoadOpts) e
 	return nil
 }
 
-// waitForHealth polls the health endpoint with backoff until ready or timeout.
-func (b *LlamaServerBackend) waitForHealth(url string, exitCh <-chan error, stderrBuf *bytes.Buffer) error {
+// waitForHealth polls the health endpoint with backoff until ready, timeout, or context cancellation.
+func (b *LlamaServerBackend) waitForHealth(ctx context.Context, url string, exitCh <-chan error, stderrBuf *bytes.Buffer) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.After(serverReadyTimeout)
 	interval := 100 * time.Millisecond
 
 	for {
 		select {
+		case <-ctx.Done():
+			return fmt.Errorf("load cancelled")
 		case err := <-exitCh:
 			// Process exited before becoming ready.
 			stderr := stderrBuf.String()
@@ -199,7 +219,8 @@ func (b *LlamaServerBackend) waitForHealth(url string, exitCh <-chan error, stde
 		default:
 		}
 
-		resp, err := client.Get(url)
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -207,7 +228,25 @@ func (b *LlamaServerBackend) waitForHealth(url string, exitCh <-chan error, stde
 			}
 		}
 
-		time.Sleep(interval)
+		// Wait for next poll interval, but abort immediately on
+		// context cancellation or process exit.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("load cancelled")
+		case err := <-exitCh:
+			stderr := stderrBuf.String()
+			if isVRAMError(stderr) {
+				return fmt.Errorf("not enough VRAM to load model")
+			}
+			if msg := serverErrorMsg(stderr); msg != "" {
+				return fmt.Errorf("llama-server failed: %s", msg)
+			}
+			if err != nil {
+				return fmt.Errorf("llama-server exited: %w", err)
+			}
+			return fmt.Errorf("llama-server exited unexpectedly")
+		case <-time.After(interval):
+		}
 		if interval < 2*time.Second {
 			interval = interval * 3 / 2
 		}
