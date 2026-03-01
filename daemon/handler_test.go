@@ -54,8 +54,8 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 
 func TestHandler_Chat(t *testing.T) {
 	h, backend := newTestHandler(t)
-	backend.LoadModel("/model.gguf", []int{0}, 0, "", 0)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	backend.LoadModel("/model.gguf", []int{0}, LoadOpts{})
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -138,7 +138,7 @@ func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -169,7 +169,7 @@ func TestHandler_Chat_WebSearch(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -197,7 +197,7 @@ func TestHandler_Chat_WebSearch_ZeroResults(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -224,7 +224,7 @@ func TestHandler_Chat_WebSearch_Error(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
 
-	registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -264,8 +264,8 @@ func TestHandler_Chat_WithModelName(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, 0, "", 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, 0, "", 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -351,7 +351,7 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 
 func TestHandler_Unload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -383,7 +383,7 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 
 func TestHandler_Status(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -593,8 +593,8 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, 0, "", 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, 0, "", 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	gpu := 0
 	var buf bytes.Buffer
@@ -617,7 +617,7 @@ func TestHandler_Unload_ByGPU(t *testing.T) {
 
 func TestHandler_Unload_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load("test", "/model.gguf", []int{0}, 0, 0, "", 0)
+	h.Registry.Load("test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -645,8 +645,8 @@ func TestHandler_Status_MultiModel(t *testing.T) {
 	registry := NewModelRegistry(cfg, factory)
 	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
 
-	registry.Load("m1", "/m1.gguf", []int{0}, 0, 0, "", 0)
-	registry.Load("m2", "/m2.gguf", []int{1}, 0, 0, "", 0)
+	registry.Load("m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
+	registry.Load("m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)

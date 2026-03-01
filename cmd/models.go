@@ -29,6 +29,9 @@ func init() {
 	modelsLoadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
 	modelsLoadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
 	modelsLoadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
+	modelsLoadCmd.Flags().BoolVarP(&loadFlashAttention, "flash-attn", "f", false, "Enable flash attention")
+	modelsLoadCmd.Flags().IntVarP(&loadBatchSize, "batch-size", "B", 0, "Micro-batch size for GPU utilization (0 = server default)")
+	modelsLoadCmd.Flags().StringVarP(&loadTensorSplit, "tensor-split", "T", "", "Custom weight distribution across GPUs (e.g. \"1,1\")")
 
 	// models unload — mirrors top-level unload
 	modelsUnloadCmd := &cobra.Command{
@@ -67,6 +70,15 @@ func runModelsLs(cmd *cobra.Command, args []string) error {
 		flags := ""
 		if entry.SplitMode != "" {
 			flags += fmt.Sprintf(" (split: %s)", entry.SplitMode)
+		}
+		if entry.FlashAttention {
+			flags += " (flash-attn)"
+		}
+		if entry.BatchSize > 0 {
+			flags += fmt.Sprintf(" (batch: %d)", entry.BatchSize)
+		}
+		if entry.TensorSplit != "" {
+			flags += fmt.Sprintf(" (ts: %s)", entry.TensorSplit)
 		}
 		if entry.ContextSize > 0 {
 			fmt.Printf("  %-20s %s (ctx: %d)%s\n", name, entry.Path, entry.ContextSize, flags)

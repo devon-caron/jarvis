@@ -13,8 +13,11 @@ import (
 )
 
 var (
-	registerContextSize int
-	registerSplitMode   string
+	registerContextSize    int
+	registerSplitMode      string
+	registerFlashAttention bool
+	registerBatchSize      int
+	registerTensorSplit    string
 )
 
 var registerCmd = &cobra.Command{
@@ -34,6 +37,9 @@ var unregisterCmd = &cobra.Command{
 func init() {
 	registerCmd.Flags().IntVarP(&registerContextSize, "context-size", "c", 8192, "Default context window size")
 	registerCmd.Flags().StringVarP(&registerSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
+	registerCmd.Flags().BoolVarP(&registerFlashAttention, "flash-attn", "f", false, "Enable flash attention by default for this model")
+	registerCmd.Flags().IntVarP(&registerBatchSize, "batch-size", "B", 0, "Default micro-batch size (0 = server default)")
+	registerCmd.Flags().StringVarP(&registerTensorSplit, "tensor-split", "T", "", "Default tensor split (e.g. \"1,1\")")
 	modelsCmd.AddCommand(registerCmd)
 	modelsCmd.AddCommand(unregisterCmd)
 }
@@ -66,7 +72,14 @@ func runRegister(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	cfg.AddModel(name, absPath, registerContextSize, splitMode)
+	cfg.AddModel(name, config.ModelEntry{
+		Path:           absPath,
+		ContextSize:    registerContextSize,
+		SplitMode:      splitMode,
+		FlashAttention: registerFlashAttention,
+		BatchSize:      registerBatchSize,
+		TensorSplit:    registerTensorSplit,
+	})
 
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)

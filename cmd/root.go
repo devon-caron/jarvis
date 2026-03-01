@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +11,14 @@ import (
 	"github.com/devon-caron/jarvis/client"
 	"github.com/devon-caron/jarvis/protocol"
 )
+
+type StatsReport struct {
+	TokensPerSecond          float64 `json:"tokens_per_second"`
+	EffectiveTokensPerSecond float64 `json:"effective_tokens_per_second"`
+	TTFT                     float64 `json:"ttft_seconds"`
+	Elapsed                  float64 `json:"elapsed_seconds"`
+	TotalTokens              int     `json:"total_tokens"`
+}
 
 var (
 	webSearch    bool
@@ -23,6 +30,17 @@ var (
 	gpuFlag      int
 	statsFlag    bool
 )
+
+type Flags struct {
+	WebSearch    bool
+	BatchMode    bool
+	SystemPrompt string
+	MaxTokens    int
+	Temperature  float64
+	ModelFlag    string
+	GPUFlag      int
+	StatsFlag    bool
+}
 
 var rootCmd = &cobra.Command{
 	Use:               "jarvis [prompt]",
@@ -53,27 +71,41 @@ func Execute() {
 
 func runChat(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
-	prompt := args[0]
+
+	_, _, err := handleChat(args[0], Flags{
+		WebSearch:    webSearch,
+		BatchMode:    batchMode,
+		SystemPrompt: systemPrompt,
+		MaxTokens:    maxTokens,
+		Temperature:  temperature,
+		ModelFlag:    modelFlag,
+		GPUFlag:      gpuFlag,
+		StatsFlag:    statsFlag,
+	}, false)
+	return err
+}
+
+func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, error) {
 
 	// cfg, _ := config.Load()
 
 	c, err := client.Connect()
 	if err != nil {
-		return fmt.Errorf("cannot connect to daemon. Is it running? Start with: jarvis start")
+		return "", nil, fmt.Errorf("cannot connect to daemon. Is it running? Start with: jarvis start")
 	}
 	defer c.Close()
 
 	opts := protocol.InferenceOpts{}
-	if maxTokens > 0 {
-		opts.MaxTokens = maxTokens
+	if flags.MaxTokens > 0 {
+		opts.MaxTokens = flags.MaxTokens
 	}
-	if temperature > 0 {
-		opts.Temperature = temperature
+	if flags.Temperature > 0 {
+		opts.Temperature = flags.Temperature
 	}
 
 	var gpuPtr *int
-	if gpuFlag >= 0 {
-		g := gpuFlag
+	if flags.GPUFlag >= 0 {
+		g := flags.GPUFlag
 		gpuPtr = &g
 	}
 
@@ -83,68 +115,84 @@ func runChat(cmd *cobra.Command, args []string) error {
 			Messages: []protocol.ChatMessage{
 				{Role: "user", Content: prompt},
 			},
-			Model:        modelFlag,
+			Model:        flags.ModelFlag,
 			GPU:          gpuPtr,
-			WebSearch:    webSearch,
-			SystemPrompt: systemPrompt,
+			WebSearch:    flags.WebSearch,
+			SystemPrompt: flags.SystemPrompt,
 			Opts:         opts,
 		},
 	}
 
 	// _ = cfg // config loaded for potential future use
 
+	genResponse := ""
 	tokenCount := 0
 	startInclTtft := time.Now()
 	var start time.Time
 	var durInclTtft, dur, ttft time.Duration
 	var once sync.Once
-	if batchMode {
-		var buf strings.Builder
+	if flags.BatchMode {
 		err = c.StreamChat(req, func(token string) {
 			once.Do(func() {
 				ttft = time.Since(startInclTtft)
 				start = time.Now()
 			})
-			buf.WriteString(token)
+			genResponse += token
 			tokenCount++
 		})
 		if err != nil {
-			return err
+			return "", nil, err
 		}
-		fmt.Print(buf.String())
+		if !silent {
+			fmt.Print(genResponse)
+		}
 	} else {
 		err = c.StreamChat(req, func(token string) {
 			once.Do(func() {
 				ttft = time.Since(startInclTtft)
 				start = time.Now()
 			})
-			fmt.Print(token)
+			genResponse += token
+			if !silent {
+				fmt.Print(token)
+			}
 			tokenCount++
 		})
 		if err != nil {
-			return err
+			return "", nil, err
 		}
-		fmt.Println()
+		if !silent {
+			fmt.Println()
+		}
 	}
 
 	dur = time.Since(start)
 	durInclTtft = time.Since(startInclTtft)
 
-	if statsFlag {
-		tokensPerSec := float64(tokenCount) / float64(dur.Seconds())
-		effTokensPerSec := float64(tokenCount) / float64(durInclTtft.Seconds())
-		fmt.Println()
-		fmt.Println()
-		fmt.Printf("╔═══════════════════════════════════════════════════════════════════╗\n")
-		fmt.Printf("║                         STATISTICS REPORT                         ║\n")
-		fmt.Printf("╠═══════════════════════════════════════════════════════════════════╝\n")
-		fmt.Printf("║ • Tokens Per Second (Raw):       %12.2f tok/s\n", tokensPerSec)
-		fmt.Printf("║ • Effective Tokens Per Second:   %12.2f tok/s (incl. TTFT)\n", effTokensPerSec)
-		fmt.Printf("║ • Time to First Token (TTFT):    %12.3f s\n", ttft.Seconds())
-		fmt.Printf("║ • Response Elapsed Time:         %12.3f s\n", dur.Seconds())
-		fmt.Printf("║ • Total Tokens Generated:        %12d tok\n", tokenCount)
-		fmt.Printf("╚═══════════════════════════════════════════════════════════════════╝\n\n")
+	var tokensPerSec, effTokensPerSec float64
+	if flags.StatsFlag {
+		tokensPerSec = float64(tokenCount) / float64(dur.Seconds())
+		effTokensPerSec = float64(tokenCount) / float64(durInclTtft.Seconds())
+		if !silent {
+			fmt.Println()
+			fmt.Println()
+			fmt.Printf("╔═══════════════════════════════════════════════════════════════════╗\n")
+			fmt.Printf("║                         STATISTICS REPORT                         ║\n")
+			fmt.Printf("╠═══════════════════════════════════════════════════════════════════╝\n")
+			fmt.Printf("║ • Tokens Per Second (Raw):       %12.2f tok/s\n", tokensPerSec)
+			fmt.Printf("║ • Effective Tokens Per Second:   %12.2f tok/s (incl. TTFT)\n", effTokensPerSec)
+			fmt.Printf("║ • Time to First Token (TTFT):    %12.3f s\n", ttft.Seconds())
+			fmt.Printf("║ • Response Elapsed Time:         %12.3f s\n", dur.Seconds())
+			fmt.Printf("║ • Total Tokens Generated:        %12d tok\n", tokenCount)
+			fmt.Printf("╚═══════════════════════════════════════════════════════════════════╝\n\n")
+		}
 	}
 
-	return nil
+	return genResponse, &StatsReport{
+		TokensPerSecond:          tokensPerSec,
+		EffectiveTokensPerSecond: effTokensPerSec,
+		TTFT:                     ttft.Seconds(),
+		Elapsed:                  dur.Seconds(),
+		TotalTokens:              tokenCount,
+	}, nil
 }

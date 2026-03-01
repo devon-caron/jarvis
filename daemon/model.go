@@ -14,14 +14,21 @@ import (
 // ErrNoModel is returned when a chat is attempted with no model loaded.
 var ErrNoModel = errors.New("no model loaded")
 
+// LoadOpts holds llama-server tuning parameters for model loading.
+type LoadOpts struct {
+	ContextSize    int
+	SplitMode      string
+	Parallel       int
+	FlashAttention bool
+	BatchSize      int    // micro-batch size → llama-server -ub
+	TensorSplit    string // GPU weight distribution → llama-server -ts
+}
+
 // ModelBackend abstracts the LLM engine for testability.
 // The real implementation wraps llama-server; tests use a mock.
 type ModelBackend interface {
 	// LoadModel loads a model from the given path onto the specified GPUs.
-	// gpus is the list of GPU device IDs (e.g. [0] or [0,1]).
-	// contextSize is the context window size (0 = backend default).
-	// splitMode is the multi-GPU split mode: "layer", "row", or "graph" (empty = none).
-	LoadModel(path string, gpus []int, contextSize int, splitMode string, parallel int) error
+	LoadModel(path string, gpus []int, opts LoadOpts) error
 	// UnloadModel frees the currently loaded model.
 	UnloadModel() error
 	// IsLoaded returns true if a model is currently loaded.
@@ -135,7 +142,7 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 }
 
 // Load loads a model onto the specified GPUs with an optional inactivity timeout.
-func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, contextSize int, splitMode string, parallel int) error {
+func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -153,7 +160,7 @@ func (r *ModelRegistry) Load(name, path string, gpus []int, timeout time.Duratio
 
 	// Create backend and load
 	backend := r.newBackend(r.cfg)
-	if err := backend.LoadModel(path, gpus, contextSize, splitMode, parallel); err != nil {
+	if err := backend.LoadModel(path, gpus, opts); err != nil {
 		return err
 	}
 

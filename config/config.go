@@ -11,9 +11,12 @@ import (
 
 // ModelEntry stores a registered model's path and settings.
 type ModelEntry struct {
-	Path        string `yaml:"path"`
-	ContextSize int    `yaml:"context_size,omitempty"` // 0 = use default (8192)
-	SplitMode   string `yaml:"split_mode,omitempty"`   // multi-GPU split mode: layer, row, or graph
+	Path           string `yaml:"path"`
+	ContextSize    int    `yaml:"context_size,omitempty"`    // 0 = use default (8192)
+	SplitMode      string `yaml:"split_mode,omitempty"`      // multi-GPU split mode: layer, row, or graph
+	FlashAttention bool   `yaml:"flash_attention,omitempty"` // enable flash attention
+	BatchSize      int    `yaml:"batch_size,omitempty"`      // micro-batch size (0 = server default)
+	TensorSplit    string `yaml:"tensor_split,omitempty"`    // GPU weight distribution (e.g. "1,1")
 }
 
 // LlamaServerConfig configures the llama-server binary.
@@ -36,9 +39,11 @@ type Config struct {
 
 // ModelOptions configures how models are loaded.
 type ModelOptions struct {
-	GPULayers   int    `yaml:"gpu_layers"`
-	TensorSplit string `yaml:"tensor_split"`
-	MLock       bool   `yaml:"mlock"`
+	GPULayers      int    `yaml:"gpu_layers"`
+	TensorSplit    string `yaml:"tensor_split"`
+	MLock          bool   `yaml:"mlock"`
+	FlashAttention bool   `yaml:"flash_attention"`
+	BatchSize      int    `yaml:"batch_size"` // micro-batch size (0 = server default)
 }
 
 // InferenceConfig holds default inference parameters.
@@ -167,12 +172,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// AddModel registers a named model with path, context size, and split mode.
-func (c *Config) AddModel(name, path string, contextSize int, splitMode string) {
+// AddModel registers a named model entry.
+func (c *Config) AddModel(name string, entry ModelEntry) {
 	if c.Models == nil {
 		c.Models = make(map[string]ModelEntry)
 	}
-	c.Models[name] = ModelEntry{Path: path, ContextSize: contextSize, SplitMode: splitMode}
+	c.Models[name] = entry
 }
 
 // RemoveModel deletes a named model alias. Returns false if the name was not found.
