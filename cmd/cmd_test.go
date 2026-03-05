@@ -581,3 +581,44 @@ func TestRunModelsLs_Empty(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 }
+
+func TestRootCmd_ClearContextFlag(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Chat != nil {
+			if !req.Chat.ClearContext {
+				fmt.Fprintf(os.Stderr, "expected clear_context=true\n")
+			}
+			if req.Chat.ShellPID == 0 {
+				fmt.Fprintf(os.Stderr, "expected non-zero shell_pid\n")
+			}
+		}
+		writeJSON(conn, protocol.DeltaResponse("ok"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"-C", "test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}
+
+func TestRootCmd_ShellPID(t *testing.T) {
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		req := scanReq(conn)
+		if req != nil && req.Chat != nil {
+			if req.Chat.ShellPID == 0 {
+				fmt.Fprintf(os.Stderr, "expected non-zero shell_pid\n")
+			}
+		}
+		writeJSON(conn, protocol.DeltaResponse("ok"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"test prompt"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+}

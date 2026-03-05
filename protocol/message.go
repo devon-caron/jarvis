@@ -39,6 +39,8 @@ type ChatRequest struct {
 	WebSearch    bool          `json:"web_search,omitempty"`
 	SystemPrompt string        `json:"system_prompt,omitempty"`
 	Opts         InferenceOpts `json:"opts,omitempty"`
+	ShellPID     int           `json:"shell_pid,omitempty"`
+	ClearContext bool          `json:"clear_context,omitempty"`
 }
 
 // LoadRequest holds the payload for a model load request.

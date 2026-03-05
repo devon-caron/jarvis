@@ -23,6 +23,7 @@ type StatsReport struct {
 var (
 	webSearch    bool
 	batchMode    bool
+	clearContext bool
 	systemPrompt string
 	maxTokens    int
 	temperature  float64
@@ -34,6 +35,7 @@ var (
 type Flags struct {
 	WebSearch    bool
 	BatchMode    bool
+	ClearContext bool
 	SystemPrompt string
 	MaxTokens    int
 	Temperature  float64
@@ -60,6 +62,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
 	rootCmd.Flags().IntVarP(&gpuFlag, "gpu", "g", -1, "Route to whichever model is loaded on this GPU")
 	rootCmd.Flags().BoolVarP(&statsFlag, "stats", "s", false, "Show tokens per second along with other statistics")
+	rootCmd.Flags().BoolVarP(&clearContext, "clear-context", "C", false, "Clear conversation history for this shell before chatting")
 }
 
 // Execute runs the root command.
@@ -75,6 +78,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	_, _, err := handleChat(args[0], Flags{
 		WebSearch:    webSearch,
 		BatchMode:    batchMode,
+		ClearContext: clearContext,
 		SystemPrompt: systemPrompt,
 		MaxTokens:    maxTokens,
 		Temperature:  temperature,
@@ -120,6 +124,8 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 			WebSearch:    flags.WebSearch,
 			SystemPrompt: flags.SystemPrompt,
 			Opts:         opts,
+			ShellPID:     os.Getppid(),
+			ClearContext: flags.ClearContext,
 		},
 	}
 
