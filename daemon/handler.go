@@ -87,6 +87,20 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		msgs = append([]protocol.ChatMessage{{Role: "system", Content: h.Config.SystemPrompt}}, msgs...)
 	}
 
+	// Inject terminal context if provided
+	if req.TerminalContext != "" {
+		ctxMsg := protocol.ChatMessage{
+			Role:    "system",
+			Content: "Recent terminal output (for context):\n```\n" + req.TerminalContext + "\n```",
+		}
+		// Insert before user messages but after system prompt
+		insertIdx := 0
+		for insertIdx < len(msgs) && msgs[insertIdx].Role == "system" {
+			insertIdx++
+		}
+		msgs = append(msgs[:insertIdx], append([]protocol.ChatMessage{ctxMsg}, msgs[insertIdx:]...)...)
+	}
+
 	// Web search augmentation
 	if req.WebSearch && h.Searcher != nil {
 		userPrompt := ""

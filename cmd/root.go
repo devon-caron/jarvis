@@ -10,6 +10,7 @@ import (
 
 	"github.com/devon-caron/jarvis/client"
 	"github.com/devon-caron/jarvis/protocol"
+	jarvispty "github.com/devon-caron/jarvis/pty"
 )
 
 type StatsReport struct {
@@ -113,19 +114,28 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 		gpuPtr = &g
 	}
 
+	// Load terminal context from PTY if available
+	var terminalContext string
+	if ctxPath := os.Getenv("JARVIS_PTY_CONTEXT"); ctxPath != "" {
+		if raw, err := jarvispty.ReadContext(ctxPath); err == nil && raw != "" {
+			terminalContext = jarvispty.SanitizeContext(raw)
+		}
+	}
+
 	req := &protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages: []protocol.ChatMessage{
 				{Role: "user", Content: prompt},
 			},
-			Model:        flags.ModelFlag,
-			GPU:          gpuPtr,
-			WebSearch:    flags.WebSearch,
-			SystemPrompt: flags.SystemPrompt,
-			Opts:         opts,
-			ShellPID:     os.Getppid(),
-			ClearContext: flags.ClearContext,
+			Model:           flags.ModelFlag,
+			GPU:             gpuPtr,
+			WebSearch:       flags.WebSearch,
+			SystemPrompt:    flags.SystemPrompt,
+			Opts:            opts,
+			ShellPID:        os.Getppid(),
+			ClearContext:    flags.ClearContext,
+			TerminalContext: terminalContext,
 		},
 	}
 

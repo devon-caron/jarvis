@@ -778,3 +778,77 @@ func TestHandler_Chat_ShellPID(t *testing.T) {
 		t.Errorf("expected done, got %q", lastResp.Type)
 	}
 }
+
+func TestHandler_Chat_TerminalContext(t *testing.T) {
+	h, backend := newTestHandler(t)
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+
+	// Track messages sent to backend
+	var capturedMsgs []protocol.ChatMessage
+	backend.chatFunc = func(msgs []protocol.ChatMessage) {
+		capturedMsgs = msgs
+	}
+
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+
+	h.Handle(context.Background(), &protocol.Request{
+		Type: protocol.ReqChat,
+		Chat: &protocol.ChatRequest{
+			Messages:        []protocol.ChatMessage{{Role: "user", Content: "why did that fail?"}},
+			TerminalContext: "$ make build\nerror: missing dependency",
+		},
+	}, rw)
+
+	responses := readResponses(t, &buf)
+	lastResp := responses[len(responses)-1]
+	if lastResp.Type != protocol.RespDone {
+		t.Errorf("expected done, got %q", lastResp.Type)
+	}
+
+	// Verify terminal context was injected as system message
+	foundCtx := false
+	for _, msg := range capturedMsgs {
+		if msg.Role == "system" && strings.Contains(msg.Content, "make build") {
+			foundCtx = true
+			break
+		}
+	}
+	if !foundCtx {
+		t.Error("expected terminal context system message in captured messages")
+	}
+}
+
+func TestHandler_Chat_TerminalContext_Empty(t *testing.T) {
+	h, backend := newTestHandler(t)
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+
+	var capturedMsgs []protocol.ChatMessage
+	backend.chatFunc = func(msgs []protocol.ChatMessage) {
+		capturedMsgs = msgs
+	}
+
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+
+	h.Handle(context.Background(), &protocol.Request{
+		Type: protocol.ReqChat,
+		Chat: &protocol.ChatRequest{
+			Messages:        []protocol.ChatMessage{{Role: "user", Content: "hello"}},
+			TerminalContext: "",
+		},
+	}, rw)
+
+	responses := readResponses(t, &buf)
+	lastResp := responses[len(responses)-1]
+	if lastResp.Type != protocol.RespDone {
+		t.Errorf("expected done, got %q", lastResp.Type)
+	}
+
+	// No terminal context system message should be present
+	for _, msg := range capturedMsgs {
+		if msg.Role == "system" && strings.Contains(msg.Content, "terminal output") {
+			t.Error("unexpected terminal context system message when context is empty")
+		}
+	}
+}

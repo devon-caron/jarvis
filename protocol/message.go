@@ -33,14 +33,15 @@ type Request struct {
 
 // ChatRequest holds the payload for a chat request.
 type ChatRequest struct {
-	Messages     []ChatMessage `json:"messages"`
-	Model        string        `json:"model,omitempty"`
-	GPU          *int          `json:"gpu,omitempty"` // nil = auto-route; set to route to specific GPU
-	WebSearch    bool          `json:"web_search,omitempty"`
-	SystemPrompt string        `json:"system_prompt,omitempty"`
-	Opts         InferenceOpts `json:"opts,omitempty"`
-	ShellPID     int           `json:"shell_pid,omitempty"`
-	ClearContext bool          `json:"clear_context,omitempty"`
+	Messages        []ChatMessage `json:"messages"`
+	Model           string        `json:"model,omitempty"`
+	GPU             *int          `json:"gpu,omitempty"` // nil = auto-route; set to route to specific GPU
+	WebSearch       bool          `json:"web_search,omitempty"`
+	SystemPrompt    string        `json:"system_prompt,omitempty"`
+	Opts            InferenceOpts `json:"opts,omitempty"`
+	ShellPID        int           `json:"shell_pid,omitempty"`
+	ClearContext    bool          `json:"clear_context,omitempty"`
+	TerminalContext string        `json:"terminal_context,omitempty"`
 }
 
 // LoadRequest holds the payload for a model load request.

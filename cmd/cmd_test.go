@@ -622,3 +622,56 @@ func TestRootCmd_ShellPID(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 }
+
+func TestRunStart_BackgroundFlag(t *testing.T) {
+	// Verify -b flag is parsed. We can't actually start a daemon in tests,
+	// but we can verify the flag exists and is recognized.
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	// Write a fake PID file so it thinks daemon is already running,
+	// which will make it return an error before actually forking.
+	pidPath := filepath.Join(dir, "jarvis.pid")
+	os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600)
+
+	rootCmd.SetArgs([]string{"start", "-b"})
+	err := rootCmd.Execute()
+	// Should fail with "daemon already running" — proves -b was parsed
+	if err == nil {
+		t.Fatal("expected error (daemon already running)")
+	}
+	if !strings.Contains(err.Error(), "already running") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleChat_WithTerminalContext(t *testing.T) {
+	// Write a fake context file
+	dir := t.TempDir()
+	ctxPath := filepath.Join(dir, "jarvis-pty.ctx")
+	os.WriteFile(ctxPath, []byte("$ ls\nfile1 file2\n"), 0600)
+	t.Setenv("JARVIS_PTY_CONTEXT", ctxPath)
+
+	var capturedReq *protocol.Request
+	setupMockDaemon(t, func(conn net.Conn) {
+		defer conn.Close()
+		capturedReq = scanReq(conn)
+		writeJSON(conn, protocol.DeltaResponse("ok"))
+		writeJSON(conn, protocol.DoneResponse())
+	})
+
+	rootCmd.SetArgs([]string{"why did that fail?"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if capturedReq == nil || capturedReq.Chat == nil {
+		t.Fatal("expected chat request")
+	}
+	if capturedReq.Chat.TerminalContext == "" {
+		t.Error("expected non-empty terminal_context")
+	}
+	if !strings.Contains(capturedReq.Chat.TerminalContext, "file1 file2") {
+		t.Errorf("terminal context should contain file listing, got %q", capturedReq.Chat.TerminalContext)
+	}
+}

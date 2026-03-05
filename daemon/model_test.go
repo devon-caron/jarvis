@@ -25,6 +25,7 @@ type mockBackend struct {
 	chatErr    error
 	chatDelay  time.Duration
 	chatCalls  atomic.Int32
+	chatFunc   func(msgs []protocol.ChatMessage) // optional hook to capture messages
 }
 
 func (m *mockBackend) LoadModel(ctx context.Context, path string, gpus []int, opts LoadOpts) error {
@@ -63,6 +64,9 @@ func (m *mockBackend) ModelPath() string {
 
 func (m *mockBackend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
 	m.chatCalls.Add(1)
+	if m.chatFunc != nil {
+		m.chatFunc(msgs)
+	}
 	if m.chatDelay > 0 {
 		time.Sleep(m.chatDelay)
 	}
