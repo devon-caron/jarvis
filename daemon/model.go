@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,14 +45,16 @@ type ModelBackend interface {
 
 // ModelSlot is a per-model container that manages lifecycle and inactivity timeout.
 type ModelSlot struct {
-	mu       sync.RWMutex
-	name     string
-	backend  ModelBackend
-	gpus     []int
-	timeout  time.Duration
-	lastUsed time.Time
-	timer    *time.Timer
-	onExpire func(name string)
+	mu        sync.RWMutex
+	name      string
+	backend   ModelBackend
+	gpus      []int
+	timeout   time.Duration
+	lastUsed  time.Time
+	timer     *time.Timer
+	onExpire  func(name string)
+	historyMu sync.Mutex
+	history   map[int][]protocol.ChatMessage // keyed by shell PID
 }
 
 // newModelSlot creates a new slot. If timeout > 0, starts an inactivity timer.
@@ -63,6 +66,7 @@ func newModelSlot(name string, backend ModelBackend, gpus []int, timeout time.Du
 		timeout:  timeout,
 		lastUsed: time.Now(),
 		onExpire: onExpire,
+		history:  make(map[int][]protocol.ChatMessage),
 	}
 	if timeout > 0 {
 		s.timer = time.AfterFunc(timeout, func() {
@@ -75,7 +79,9 @@ func newModelSlot(name string, backend ModelBackend, gpus []int, timeout time.Du
 }
 
 // Chat runs a chat request on this slot. Resets the inactivity timer.
-func (s *ModelSlot) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
+// shellPID identifies the calling shell for per-shell history tracking.
+// If clearContext is true, the shell's history is cleared before this chat.
+func (s *ModelSlot) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string), shellPID int, clearContext bool) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -88,7 +94,81 @@ func (s *ModelSlot) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts 
 		s.timer.Reset(s.timeout)
 	}
 
-	return s.backend.RunChat(ctx, msgs, opts, onDelta)
+	// Split incoming messages into system-role prefix and conversation tail.
+	var systemMsgs, conversationMsgs []protocol.ChatMessage
+	for i, m := range msgs {
+		if m.Role != "system" {
+			conversationMsgs = msgs[i:]
+			break
+		}
+		systemMsgs = append(systemMsgs, m)
+	}
+	if len(conversationMsgs) == 0 && len(systemMsgs) == len(msgs) {
+		// All messages are system messages (unusual but handle gracefully).
+		conversationMsgs = nil
+	}
+
+	// Manage per-shell history.
+	s.historyMu.Lock()
+	if clearContext {
+		delete(s.history, shellPID)
+	}
+	var priorHistory []protocol.ChatMessage
+	if shellPID != 0 {
+		priorHistory = make([]protocol.ChatMessage, len(s.history[shellPID]))
+		copy(priorHistory, s.history[shellPID])
+	}
+	s.historyMu.Unlock()
+
+	// Build full message list: system + history + new conversation.
+	full := make([]protocol.ChatMessage, 0, len(systemMsgs)+len(priorHistory)+len(conversationMsgs))
+	full = append(full, systemMsgs...)
+	full = append(full, priorHistory...)
+	full = append(full, conversationMsgs...)
+
+	// Capture the full response text.
+	var responseBuilder strings.Builder
+	wrappedDelta := func(token string) {
+		responseBuilder.WriteString(token)
+		onDelta(token)
+	}
+
+	err := s.backend.RunChat(ctx, full, opts, wrappedDelta)
+	if err != nil {
+		// If context length exceeded with history, retry without history.
+		if IsContextLengthError(err.Error()) && len(priorHistory) > 0 {
+			s.historyMu.Lock()
+			delete(s.history, shellPID)
+			s.historyMu.Unlock()
+
+			onDelta("\n[context limit reached — history cleared, retrying]\n")
+
+			responseBuilder.Reset()
+			retryMsgs := make([]protocol.ChatMessage, 0, len(systemMsgs)+len(conversationMsgs))
+			retryMsgs = append(retryMsgs, systemMsgs...)
+			retryMsgs = append(retryMsgs, conversationMsgs...)
+
+			err = s.backend.RunChat(ctx, retryMsgs, opts, wrappedDelta)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	// On success, append conversation + assistant response to history.
+	if shellPID != 0 {
+		s.historyMu.Lock()
+		s.history[shellPID] = append(s.history[shellPID], conversationMsgs...)
+		s.history[shellPID] = append(s.history[shellPID], protocol.ChatMessage{
+			Role:    "assistant",
+			Content: responseBuilder.String(),
+		})
+		s.historyMu.Unlock()
+	}
+
+	return nil
 }
 
 // Unload stops the timer and unloads the model.
@@ -249,7 +329,7 @@ func (r *ModelRegistry) unloadLocked(name string) error {
 //  2. gpu >= 0    → route to whichever model is on that GPU
 //  3. single model loaded → auto-route
 //  4. multiple models → route to model on cfg.DefaultGPU
-func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
+func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string), shellPID int, clearContext bool) error {
 	r.mu.RLock()
 
 	if len(r.slots) == 0 {
@@ -292,7 +372,7 @@ func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []p
 	}
 
 	r.mu.RUnlock()
-	return slot.Chat(ctx, msgs, opts, onDelta)
+	return slot.Chat(ctx, msgs, opts, onDelta, shellPID, clearContext)
 }
 
 // Status returns info for all loaded models.

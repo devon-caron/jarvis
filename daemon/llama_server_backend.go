@@ -496,6 +496,26 @@ func checkNCCL() error {
 	return nil
 }
 
+// contextLengthPatterns are substrings returned by llama-server when the
+// prompt exceeds the model's context window.
+var contextLengthPatterns = []string{
+	"context length exceeded",
+	"too many tokens",
+	"maximum context length",
+}
+
+// IsContextLengthError returns true if the error message indicates the
+// request exceeded the model's context window.
+func IsContextLengthError(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	for _, p := range contextLengthPatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // isVRAMError scans stderr for CUDA/GPU out-of-memory indicators.
 func isVRAMError(stderr string) bool {
 	lower := strings.ToLower(stderr)

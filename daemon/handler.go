@@ -135,7 +135,7 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 	// Route to model by name, GPU, or auto-route.
 	err := h.Registry.Chat(ctx, req.Model, gpu, msgs, opts, func(token string) {
 		rw.Write(protocol.DeltaResponse(token))
-	})
+	}, req.ShellPID, req.ClearContext)
 	if err != nil {
 		rw.Write(protocol.ErrorResponse(err.Error()))
 		return

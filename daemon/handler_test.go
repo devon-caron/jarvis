@@ -733,3 +733,48 @@ func TestResponseWriter(t *testing.T) {
 		t.Errorf("second response type = %q", r2.Type)
 	}
 }
+
+func TestHandler_Chat_ClearContext(t *testing.T) {
+	h, _ := newTestHandler(t)
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+
+	h.Handle(context.Background(), &protocol.Request{
+		Type: protocol.ReqChat,
+		Chat: &protocol.ChatRequest{
+			Messages:     []protocol.ChatMessage{{Role: "user", Content: "hello"}},
+			ShellPID:     12345,
+			ClearContext: true,
+		},
+	}, rw)
+
+	responses := readResponses(t, &buf)
+	lastResp := responses[len(responses)-1]
+	if lastResp.Type != protocol.RespDone {
+		t.Errorf("expected done, got %q", lastResp.Type)
+	}
+}
+
+func TestHandler_Chat_ShellPID(t *testing.T) {
+	h, _ := newTestHandler(t)
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+
+	h.Handle(context.Background(), &protocol.Request{
+		Type: protocol.ReqChat,
+		Chat: &protocol.ChatRequest{
+			Messages: []protocol.ChatMessage{{Role: "user", Content: "hello"}},
+			ShellPID: 12345,
+		},
+	}, rw)
+
+	responses := readResponses(t, &buf)
+	lastResp := responses[len(responses)-1]
+	if lastResp.Type != protocol.RespDone {
+		t.Errorf("expected done, got %q", lastResp.Type)
+	}
+}
