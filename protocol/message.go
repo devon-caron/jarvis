@@ -7,28 +7,31 @@ import (
 
 // Request types sent from client to daemon.
 const (
-	ReqChat   = "chat"
-	ReqLoad   = "load"
-	ReqUnload = "unload"
-	ReqStatus = "status"
-	ReqStop   = "stop"
+	ReqChat       = "chat"
+	ReqLoad       = "load"
+	ReqUnload     = "unload"
+	ReqStatus     = "status"
+	ReqStop       = "stop"
+	ReqGetContext = "get_context"
 )
 
 // Response types sent from daemon to client.
 const (
-	RespDelta  = "delta"
-	RespDone   = "done"
-	RespError  = "error"
-	RespStatus = "status"
-	RespOK     = "ok"
+	RespDelta   = "delta"
+	RespDone    = "done"
+	RespError   = "error"
+	RespStatus  = "status"
+	RespOK      = "ok"
+	RespContext = "context"
 )
 
 // Request is the envelope for all client-to-daemon messages.
 type Request struct {
-	Type   string         `json:"type"`
-	Chat   *ChatRequest   `json:"chat,omitempty"`
-	Load   *LoadRequest   `json:"load,omitempty"`
-	Unload *UnloadRequest `json:"unload,omitempty"`
+	Type       string             `json:"type"`
+	Chat       *ChatRequest       `json:"chat,omitempty"`
+	Load       *LoadRequest       `json:"load,omitempty"`
+	Unload     *UnloadRequest     `json:"unload,omitempty"`
+	GetContext *GetContextRequest `json:"get_context,omitempty"`
 }
 
 // ChatRequest holds the payload for a chat request.
@@ -64,12 +67,19 @@ type UnloadRequest struct {
 	GPU  *int   `json:"gpu,omitempty"` // nil = not specified; unload by GPU index
 }
 
+// GetContextRequest holds the payload for a context retrieval request.
+type GetContextRequest struct {
+	Model    string `json:"model,omitempty"`
+	ShellPID int    `json:"shell_pid,omitempty"`
+}
+
 // Response is the envelope for all daemon-to-client messages.
 type Response struct {
-	Type   string          `json:"type"`
-	Delta  *DeltaPayload   `json:"delta,omitempty"`
-	Error  *ErrorPayload   `json:"error,omitempty"`
-	Status *StatusPayload  `json:"status,omitempty"`
+	Type    string          `json:"type"`
+	Delta   *DeltaPayload   `json:"delta,omitempty"`
+	Error   *ErrorPayload   `json:"error,omitempty"`
+	Status  *StatusPayload  `json:"status,omitempty"`
+	Context *ContextPayload `json:"context,omitempty"`
 }
 
 // DeltaPayload carries a single token/chunk of streamed text.
@@ -80,6 +90,12 @@ type DeltaPayload struct {
 // ErrorPayload carries an error message.
 type ErrorPayload struct {
 	Message string `json:"message"`
+}
+
+// ContextPayload carries the conversation context for a model.
+type ContextPayload struct {
+	Model    string        `json:"model"`
+	Messages []ChatMessage `json:"messages"`
 }
 
 // StatusPayload carries daemon and model status info.
@@ -146,4 +162,8 @@ func OKResponse() *Response {
 
 func StatusResponse(payload *StatusPayload) *Response {
 	return &Response{Type: RespStatus, Status: payload}
+}
+
+func ContextResponse(payload *ContextPayload) *Response {
+	return &Response{Type: RespContext, Context: payload}
 }

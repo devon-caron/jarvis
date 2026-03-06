@@ -67,6 +67,8 @@ func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *Respons
 		h.handleStatus(rw)
 	case protocol.ReqStop:
 		h.handleStop(rw)
+	case protocol.ReqGetContext:
+		h.handleGetContext(req.GetContext, rw)
 	default:
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("unknown request type: %s", req.Type)))
 	}
@@ -303,6 +305,24 @@ func (h *Handler) handleStatus(rw *ResponseWriter) {
 		PID:         os.Getpid(),
 		Model:       modelStatus,
 		Models:      models,
+	}))
+}
+
+func (h *Handler) handleGetContext(req *protocol.GetContextRequest, rw *ResponseWriter) {
+	if req == nil {
+		rw.Write(protocol.ErrorResponse("missing get_context request payload"))
+		return
+	}
+
+	msgs, modelName, err := h.Registry.GetHistory(req.Model, req.ShellPID)
+	if err != nil {
+		rw.Write(protocol.ErrorResponse(err.Error()))
+		return
+	}
+
+	rw.Write(protocol.ContextResponse(&protocol.ContextPayload{
+		Model:    modelName,
+		Messages: msgs,
 	}))
 }
 

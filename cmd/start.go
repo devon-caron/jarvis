@@ -11,26 +11,49 @@ import (
 
 	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/internal"
+	"github.com/devon-caron/jarvis/ptyshell"
 )
+
+var backgroundOnly bool
 
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the jarvis daemon",
+	Long:  `Start the jarvis daemon. Without -b, also launches an interactive AI shell with sanitized I/O for LLM context.`,
 	RunE:  runStart,
 }
 
 func init() {
+	startCmd.Flags().BoolVarP(&backgroundOnly, "background", "b", false, "Start daemon only (no interactive shell)")
 	rootCmd.AddCommand(startCmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
+
+	// Ensure daemon is running
+	if err := ensureDaemon(); err != nil {
+		return err
+	}
+
+	// If -b flag, we're done (daemon-only mode, backward compat)
+	if backgroundOnly {
+		return nil
+	}
+
+	// Launch interactive PTY shell
+	shell := ptyshell.New()
+	return shell.Run()
+}
+
+// ensureDaemon starts the daemon if it is not already running.
+func ensureDaemon() error {
 	pidPath := internal.PIDPath()
 
-	// Check if already running
 	if daemon.IsRunning(pidPath) {
 		pid, _ := daemon.ReadPID(pidPath)
-		return fmt.Errorf("daemon already running (pid %d)", pid)
+		fmt.Printf("jarvis daemon already running (pid %d)\n", pid)
+		return nil
 	}
 
 	// Self-fork: launch hidden _daemon subcommand

@@ -171,6 +171,17 @@ func (s *ModelSlot) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts 
 	return nil
 }
 
+// GetHistory returns a copy of the conversation history for the given shell PID.
+func (s *ModelSlot) GetHistory(shellPID int) []protocol.ChatMessage {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+
+	hist := s.history[shellPID]
+	cp := make([]protocol.ChatMessage, len(hist))
+	copy(cp, hist)
+	return cp
+}
+
 // Unload stops the timer and unloads the model.
 func (s *ModelSlot) Unload() error {
 	s.mu.Lock()
@@ -385,6 +396,43 @@ func (r *ModelRegistry) Status() []protocol.SlotInfo {
 		infos = append(infos, slot.Status())
 	}
 	return infos
+}
+
+// GetHistory returns the conversation history for the specified model and shell PID.
+// If name is empty and only one model is loaded, that model is used.
+func (r *ModelRegistry) GetHistory(name string, shellPID int) ([]protocol.ChatMessage, string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if len(r.slots) == 0 {
+		return nil, "", ErrNoModel
+	}
+
+	var slot *ModelSlot
+	var resolvedName string
+
+	if name != "" {
+		s, ok := r.slots[name]
+		if !ok {
+			return nil, "", fmt.Errorf("model %q not loaded", name)
+		}
+		slot = s
+		resolvedName = name
+	} else if len(r.slots) == 1 {
+		for n, s := range r.slots {
+			slot = s
+			resolvedName = n
+		}
+	} else {
+		names := make([]string, 0, len(r.slots))
+		for n := range r.slots {
+			names = append(names, n)
+		}
+		return nil, "", fmt.Errorf("multiple models loaded, specify which: %v", names)
+	}
+
+	msgs := slot.GetHistory(shellPID)
+	return msgs, resolvedName, nil
 }
 
 // Shutdown unloads all models.

@@ -111,6 +111,24 @@ func (c *Client) SendAndWaitOK(req *protocol.Request) error {
 	return nil
 }
 
+// SendAndReadContext sends a get_context request and reads a context response.
+func (c *Client) SendAndReadContext(req *protocol.Request) (*protocol.ContextPayload, error) {
+	if err := c.Send(req); err != nil {
+		return nil, err
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		return nil, err
+	}
+	if resp.Type == protocol.RespError && resp.Error != nil {
+		return nil, fmt.Errorf("%s", resp.Error.Message)
+	}
+	if resp.Type != protocol.RespContext || resp.Context == nil {
+		return nil, fmt.Errorf("unexpected response: %s", resp.Type)
+	}
+	return resp.Context, nil
+}
+
 // SendAndReadStatus sends a request and reads a status response.
 func (c *Client) SendAndReadStatus(req *protocol.Request) (*protocol.StatusPayload, error) {
 	if err := c.Send(req); err != nil {
