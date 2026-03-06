@@ -9,7 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/client"
+	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
+	"github.com/devon-caron/jarvis/ptyshell"
 )
 
 type StatsReport struct {
@@ -113,18 +115,54 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 		gpuPtr = &g
 	}
 
+	// Build messages list
+	var messages []protocol.ChatMessage
+	shellPID := os.Getppid()
+	systemPromptToSend := flags.SystemPrompt
+
+	// PTY mode: sanitize prompt, prepend terminal context + system prompt
+	if os.Getenv("JARVIS_PTY") == "1" {
+		// Sanitize the prompt — strip redaction markers
+		prompt = ptyshell.SanitizePrompt(prompt)
+
+		// Don't accumulate daemon-side history in PTY mode
+		shellPID = 0
+
+		// Read terminal context from context file
+		if ctxFile := os.Getenv("JARVIS_CONTEXT_FILE"); ctxFile != "" {
+			if data, err := os.ReadFile(ctxFile); err == nil && len(data) > 0 {
+				messages = append(messages, protocol.ChatMessage{
+					Role:    "system",
+					Content: string(data),
+				})
+			}
+		}
+
+		// Prepend PTY system prompt if set
+		if sp := internal.GetJarvisPtySystemPrompt(); sp != "" {
+			if systemPromptToSend == "" {
+				systemPromptToSend = sp
+			} else {
+				systemPromptToSend = sp + "\n\n" + systemPromptToSend
+			}
+		}
+	}
+
+	// Add the user's prompt
+	messages = append(messages, protocol.ChatMessage{
+		Role: "user", Content: prompt,
+	})
+
 	req := &protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
-			Messages: []protocol.ChatMessage{
-				{Role: "user", Content: prompt},
-			},
+			Messages:     messages,
 			Model:        flags.ModelFlag,
 			GPU:          gpuPtr,
 			WebSearch:    flags.WebSearch,
-			SystemPrompt: flags.SystemPrompt,
+			SystemPrompt: systemPromptToSend,
 			Opts:         opts,
-			ShellPID:     os.Getppid(),
+			ShellPID:     shellPID,
 			ClearContext: flags.ClearContext,
 		},
 	}

@@ -117,6 +117,15 @@ func (r *Redactor) IsFullRedact() bool {
 	return r.fullRedact
 }
 
+// SanitizePrompt strips redaction markers from a jarvis CLI prompt argument.
+// This is called by cmd/root.go when JARVIS_PTY=1 so that secrets in
+// `jarvis "Hello #+secret+"` never reach the daemon unsanitized.
+// It returns the sanitized prompt for LLM context (secrets replaced with [REDACTED]).
+func SanitizePrompt(prompt string) string {
+	_, contextStr, _ := parseRedactionMarkers(prompt)
+	return contextStr
+}
+
 // extractCommandName returns the base command name from an input line,
 // stripping leading env assignments (FOO=bar) and sudo.
 func extractCommandName(input string) string {

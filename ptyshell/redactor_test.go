@@ -330,6 +330,37 @@ func TestParseRedactionMarkers_Mixed(t *testing.T) {
 	}
 }
 
+func TestSanitizePrompt_Plain(t *testing.T) {
+	got := SanitizePrompt("explain this error")
+	if got != "explain this error" {
+		t.Errorf("SanitizePrompt plain = %q, want %q", got, "explain this error")
+	}
+}
+
+func TestSanitizePrompt_Selective(t *testing.T) {
+	got := SanitizePrompt("why does #+my-secret-key+ cause a 403?")
+	want := "why does [REDACTED] cause a 403?"
+	if got != want {
+		t.Errorf("SanitizePrompt selective = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizePrompt_Tail(t *testing.T) {
+	got := SanitizePrompt("debug this: #+ERROR: secret token abc123")
+	want := "debug this: [REDACTED]"
+	if got != want {
+		t.Errorf("SanitizePrompt tail = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizePrompt_Multiple(t *testing.T) {
+	got := SanitizePrompt("connect to #+host.internal+ with key #+abc123+")
+	want := "connect to [REDACTED] with key [REDACTED]"
+	if got != want {
+		t.Errorf("SanitizePrompt multiple = %q, want %q", got, want)
+	}
+}
+
 func TestSanitizeInput_SecretsResetBetweenCommands(t *testing.T) {
 	r := NewRedactor()
 

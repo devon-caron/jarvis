@@ -7,10 +7,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/term"
+
+	"github.com/devon-caron/jarvis/internal"
 )
 
 // Shell wraps a child shell process in a PTY with sanitized I/O.
@@ -18,13 +22,18 @@ import (
 // through SanitizeOutput, ensuring the LLM context buffer never contains
 // unsanitized content.
 type Shell struct {
-	ptmx      *os.File
-	childCmd  *exec.Cmd
-	redactor  *Redactor
-	ctxBuf    *ContextBuffer
-	promptDet *PromptDetector
-	origState *term.State
-	shell     string // path to user's shell (e.g., /bin/bash)
+	ptmx        *os.File
+	childCmd    *exec.Cmd
+	redactor    *Redactor
+	ctxBuf      *ContextBuffer
+	promptDet   *PromptDetector
+	origState   *term.State
+	shell       string // path to user's shell (e.g., /bin/bash)
+	contextPath string // path to context file on disk
+
+	flushMu    sync.Mutex
+	lastFlush  time.Time
+	flushDirty bool
 }
 
 // New creates a new PTY shell. It does not start the shell; call Run() for that.
@@ -68,11 +77,14 @@ func New() *Shell {
 		}
 	}
 
+	contextPath := internal.ContextPath(os.Getpid())
+
 	return &Shell{
-		redactor:  redactor,
-		ctxBuf:    ctxBuf,
-		promptDet: promptDet,
-		shell:     shell,
+		redactor:    redactor,
+		ctxBuf:      ctxBuf,
+		promptDet:   promptDet,
+		shell:       shell,
+		contextPath: contextPath,
 	}
 }
 
@@ -80,9 +92,29 @@ func New() *Shell {
 // It puts the terminal into raw mode, starts the child shell on a PTY,
 // and runs the I/O pump goroutines.
 func (s *Shell) Run() error {
+	// Print startup banner before entering raw mode
+	fmt.Println("┌───────────────────────────────────────────────┐")
+	fmt.Println("│  jarvis PTY shell active                      │")
+	fmt.Println("│  Use redaction markers in prompts:            │")
+	fmt.Println("│    ^(.*)#+<secret>+(.*)$  selective redaction │")
+	fmt.Println("│    ^(.*)#+<tail>$         tail redaction      │")
+	fmt.Println("│    ^#:command+(.*)$       full I/O redaction  │")
+	fmt.Println("└───────────────────────────────────────────────┘")
+
 	// Build the child shell command
 	cmd := exec.Command(s.shell)
 	cmd.Env = append(os.Environ(), s.promptDet.ShellEnv(s.shell)...)
+
+	// Set PTY-mode env vars for child processes
+	cmd.Env = append(cmd.Env,
+		"JARVIS_PTY=1",
+		fmt.Sprintf("JARVIS_CONTEXT_FILE=%s", s.contextPath),
+	)
+
+	// Pass through JARVIS_PTY_SYSTEM_PROMPT if set in parent env
+	if sp := os.Getenv("JARVIS_PTY_SYSTEM_PROMPT"); sp != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("JARVIS_PTY_SYSTEM_PROMPT=%s", sp))
+	}
 
 	// For zsh, we need to inject precmd. We do this by appending to ZDOTDIR
 	// or by setting an env var that .zshrc can pick up.
@@ -100,6 +132,9 @@ func (s *Shell) Run() error {
 	s.ptmx = ptmx
 	s.childCmd = cmd
 	defer ptmx.Close()
+
+	// Clean up context file on exit
+	defer os.Remove(s.contextPath)
 
 	// Save terminal state and set raw mode
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -130,6 +165,9 @@ func (s *Shell) Run() error {
 
 	// Wait for the child shell to exit
 	cmdErr := cmd.Wait()
+
+	// Final flush of context buffer
+	s.flushContextNow()
 
 	// If the child exited, return its error (if any).
 	// The I/O pumps will naturally stop when the PTY closes.
@@ -204,11 +242,46 @@ func (s *Shell) pumpOutput() error {
 		// Write sanitized output to context buffer
 		if contextStr != "" {
 			s.ctxBuf.AppendOutput(contextStr)
+			s.flushContext()
 		}
 
 		// Feed to prompt detector for command boundary detection
 		s.promptDet.FeedOutput(buf[:n])
 	}
+}
+
+// flushContext writes the context buffer to disk, throttled to avoid excessive I/O.
+func (s *Shell) flushContext() {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+
+	s.flushDirty = true
+	if time.Since(s.lastFlush) < 500*time.Millisecond {
+		return
+	}
+	s.doFlush()
+}
+
+// flushContextNow forces an immediate flush regardless of throttle.
+func (s *Shell) flushContextNow() {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+	if s.flushDirty {
+		s.doFlush()
+	}
+}
+
+// doFlush writes context buffer contents to the context file. Must be called with flushMu held.
+func (s *Shell) doFlush() {
+	data := s.ctxBuf.Format()
+	// Write atomically via temp file
+	tmp := s.contextPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(data), 0600); err != nil {
+		return
+	}
+	os.Rename(tmp, s.contextPath)
+	s.lastFlush = time.Now()
+	s.flushDirty = false
 }
 
 // resizePTY propagates the current terminal size to the PTY.

@@ -50,3 +50,11 @@ func LogDir() string {
 func LogPath() string {
 	return filepath.Join(LogDir(), "daemon.log")
 }
+
+// ContextPath returns the path to the PTY context file for the given shell PID.
+func ContextPath(pid int) string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, fmt.Sprintf("jarvis-ctx-%d.txt", pid))
+	}
+	return fmt.Sprintf("/tmp/jarvis-ctx-%d-%d.txt", os.Getuid(), pid)
+}
