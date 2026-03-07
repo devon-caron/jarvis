@@ -93,15 +93,17 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		return
 	}
 	if req.WebSearch && h.Searcher != nil {
-		userPrompt := ""
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == "user" {
-				userPrompt = msgs[i].Content
-				break
+		searchQuery := req.SearchQuery
+		if searchQuery == "" {
+			for i := len(msgs) - 1; i >= 0; i-- {
+				if msgs[i].Role == "user" {
+					searchQuery = msgs[i].Content
+					break
+				}
 			}
 		}
-		if userPrompt != "" {
-			results, err := h.Searcher.Search(ctx, userPrompt)
+		if searchQuery != "" {
+			results, err := h.Searcher.Search(ctx, searchQuery)
 			if err == nil && len(results) > 0 {
 				searchCtx := search.FormatResults(results)
 				// Append search context to the existing system message so the

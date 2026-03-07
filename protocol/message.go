@@ -37,6 +37,7 @@ type ChatRequest struct {
 	Model        string        `json:"model,omitempty"`
 	GPU          *int          `json:"gpu,omitempty"` // nil = auto-route; set to route to specific GPU
 	WebSearch    bool          `json:"web_search,omitempty"`
+	SearchQuery  string        `json:"search_query,omitempty"`
 	SystemPrompt string        `json:"system_prompt,omitempty"`
 	Opts         InferenceOpts `json:"opts,omitempty"`
 	ShellPID     int           `json:"shell_pid,omitempty"`

@@ -22,6 +22,7 @@ type StatsReport struct {
 
 var (
 	webSearch    bool
+	wikiSearch   string
 	batchMode    bool
 	clearContext bool
 	systemPrompt string
@@ -34,6 +35,7 @@ var (
 
 type Flags struct {
 	WebSearch    bool
+	WikiSearch   string
 	BatchMode    bool
 	ClearContext bool
 	SystemPrompt string
@@ -55,6 +57,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Flags().BoolVarP(&webSearch, "web", "w", false, "Augment prompt with Wikipedia search results")
+	rootCmd.Flags().StringVarP(&wikiSearch, "wiki-custom-search", "W", "", "Search Wikipedia with this query and add results to context")
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
 	rootCmd.Flags().StringVar(&systemPrompt, "system", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
@@ -76,7 +79,8 @@ func runChat(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
 	_, _, err := handleChat(args[0], Flags{
-		WebSearch:    webSearch,
+		WebSearch:    webSearch || wikiSearch != "",
+		WikiSearch:   wikiSearch,
 		BatchMode:    batchMode,
 		ClearContext: clearContext,
 		SystemPrompt: systemPrompt,
@@ -122,6 +126,7 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 			Model:        flags.ModelFlag,
 			GPU:          gpuPtr,
 			WebSearch:    flags.WebSearch,
+			SearchQuery:  flags.WikiSearch,
 			SystemPrompt: flags.SystemPrompt,
 			Opts:         opts,
 			ShellPID:     os.Getppid(),
