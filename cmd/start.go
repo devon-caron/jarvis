@@ -52,7 +52,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Wait for PID file to appear (confirms daemon is ready)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		time.Sleep(100 * time.Millisecond)
 		if daemon.IsRunning(pidPath) {
 			pid, _ := daemon.ReadPID(pidPath)
