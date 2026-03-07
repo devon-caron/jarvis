@@ -61,8 +61,8 @@ func TestRunChat(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
-		writeJSON(conn, protocol.DeltaResponse("Hello!"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("Hello!"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"test prompt"})
@@ -326,8 +326,8 @@ func TestRunChat_WithFlags(t *testing.T) {
 				fmt.Fprintf(os.Stderr, "expected max_tokens=100, got %d\n", req.Chat.Opts.MaxTokens)
 			}
 		}
-		writeJSON(conn, protocol.DeltaResponse("test"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("test"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-n", "100", "test prompt"})
@@ -345,8 +345,8 @@ func TestRunChat_WithModelFlag(t *testing.T) {
 				fmt.Fprintf(os.Stderr, "expected model=llama70b, got %q\n", req.Chat.Model)
 			}
 		}
-		writeJSON(conn, protocol.DeltaResponse("test"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("test"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-m", "llama70b", "test prompt"})
@@ -359,8 +359,8 @@ func TestRunChat_BatchMode(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
-		writeJSON(conn, protocol.DeltaResponse("Hello!"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("Hello!"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-b", "test prompt"})
@@ -376,8 +376,8 @@ func TestRunChat_WebSearchFlag(t *testing.T) {
 		if req != nil && req.Chat != nil && !req.Chat.WebSearch {
 			fmt.Fprintf(os.Stderr, "expected web_search=true\n")
 		}
-		writeJSON(conn, protocol.DeltaResponse("test"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("test"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-w", "test prompt"})
@@ -393,8 +393,8 @@ func TestRunChat_SystemPromptFlag(t *testing.T) {
 		if req != nil && req.Chat != nil && req.Chat.SystemPrompt != "Be terse" {
 			fmt.Fprintf(os.Stderr, "expected system_prompt='Be terse'\n")
 		}
-		writeJSON(conn, protocol.DeltaResponse("ok"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("ok"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"--system", "Be terse", "test prompt"})
@@ -407,8 +407,8 @@ func TestRunChat_TemperatureFlag(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
-		writeJSON(conn, protocol.DeltaResponse("ok"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("ok"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-t", "0.5", "test prompt"})
@@ -594,8 +594,8 @@ func TestRootCmd_ClearContextFlag(t *testing.T) {
 				fmt.Fprintf(os.Stderr, "expected non-zero shell_pid\n")
 			}
 		}
-		writeJSON(conn, protocol.DeltaResponse("ok"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("ok"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"-C", "test prompt"})
@@ -613,8 +613,8 @@ func TestRootCmd_ShellPID(t *testing.T) {
 				fmt.Fprintf(os.Stderr, "expected non-zero shell_pid\n")
 			}
 		}
-		writeJSON(conn, protocol.DeltaResponse("ok"))
-		writeJSON(conn, protocol.DoneResponse())
+		writeJSON(conn, protocol.DeltaTokenResponse("ok"))
+		writeJSON(conn, protocol.EndTokenResponse())
 	})
 
 	rootCmd.SetArgs([]string{"test prompt"})

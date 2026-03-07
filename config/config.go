@@ -1,0 +1,172 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/devon-caron/jarvis/internal"
+	"gopkg.in/yaml.v3"
+)
+
+// Config holds all jarvis configuration.
+type Config struct {
+	DefaultModel   string                `yaml:"default_model"`
+	DefaultTimeout string                `yaml:"default_timeout"`
+	DefaultGPU     int                   `yaml:"default_gpu"`
+	Models         map[string]ModelEntry `yaml:"models"`
+	ModelOptions   ModelOptions          `yaml:"model_options"`
+	Inference      InferenceConfig       `yaml:"inference"`
+	SystemPrompt   string                `yaml:"system_prompt"`
+	Search         SearchConfig          `yaml:"search"`
+	LlamaServer    LlamaServerConfig     `yaml:"llama_server"`
+}
+
+// LlamaServerConfig configures the llama-server binaries.
+// IKBinaryPath is used for graph split mode (ik_llama.cpp with NCCL support).
+// VanillaBinaryPath is used for layer/row split modes and as the default when
+// no split mode is specified.
+type LlamaServerConfig struct {
+	IKBinaryPath      string `yaml:"ik_binary_path"`
+	VanillaBinaryPath string `yaml:"vanilla_binary_path"`
+}
+
+// ModelEntry stores a registered model's path and settings.
+type ModelEntry struct {
+	Path           string `yaml:"path"`
+	ContextSize    int    `yaml:"context_size,omitempty"`    // 0 = use default (8192)
+	SplitMode      string `yaml:"split_mode,omitempty"`      // multi-GPU split mode: layer, row, or graph
+	FlashAttention bool   `yaml:"flash_attention,omitempty"` // enable flash attention
+	BatchSize      int    `yaml:"batch_size,omitempty"`      // micro-batch size (0 = server default)
+	TensorSplit    string `yaml:"tensor_split,omitempty"`    // GPU weight distribution (e.g. "1,1")
+}
+
+// ModelOptions configures how models are loaded.
+type ModelOptions struct {
+	GPULayers      int    `yaml:"gpu_layers"`
+	TensorSplit    string `yaml:"tensor_split"`
+	MLock          bool   `yaml:"mlock"`
+	FlashAttention bool   `yaml:"flash_attention"`
+	BatchSize      int    `yaml:"batch_size"` // micro-batch size (0 = server default)
+}
+
+// InferenceConfig holds default inference parameters.
+type InferenceConfig struct {
+	ContextSize int     `yaml:"context_size"`
+	MaxTokens   int     `yaml:"max_tokens"`
+	Temperature float64 `yaml:"temperature"`
+	TopP        float64 `yaml:"top_p"`
+	TopK        int     `yaml:"top_k"`
+	Timeout     int     `yaml:"timeout"`
+}
+
+// SearchConfig configures web search.
+type SearchConfig struct {
+	Provider   string `yaml:"provider"`
+	APIKey     string `yaml:"api_key"`
+	MaxResults int    `yaml:"max_results"`
+}
+
+// WriteDefault writes a default config file to the standard config path.
+// Returns an error if the file already exists.
+func WriteDefault() (string, error) {
+	path := internal.ConfigPath()
+	if _, err := os.Stat(path); err == nil {
+		return path, os.ErrExist
+	}
+
+	if err := os.MkdirAll(internal.ConfigDir(), 0755); err != nil {
+		return "", err
+	}
+
+	cfg := Defaults()
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// Defaults returns a Config with sensible default values.
+func Defaults() *Config {
+	return &Config{
+		Models:         make(map[string]ModelEntry),
+		DefaultTimeout: "30m",
+		ModelOptions: ModelOptions{
+			GPULayers: -1,
+		},
+		Inference: InferenceConfig{
+			ContextSize: 8192,
+			MaxTokens:   1024,
+			Temperature: 0.7,
+			TopP:        0.9,
+			TopK:        40,
+			Timeout:     120,
+		},
+		SystemPrompt: "You are a helpful AI assistant.",
+		Search: SearchConfig{
+			Provider:   "brave",
+			MaxResults: 5,
+		},
+		LlamaServer: LlamaServerConfig{
+			IKBinaryPath:      "",
+			VanillaBinaryPath: "",
+		},
+	}
+}
+
+// LoadFrom reads a config file from the given path.
+// If the file doesn't exist, returns defaults.
+func LoadFrom(path string) (*Config, error) {
+	cfg := Defaults()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, err
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+
+	// Ensure maps are initialized
+	if cfg.Models == nil {
+		cfg.Models = make(map[string]ModelEntry)
+	}
+
+	return cfg, nil
+}
+
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// AddModel registers a named model entry.
+func (c *Config) AddModel(name string, entry ModelEntry) {
+	if c.Models == nil {
+		c.Models = make(map[string]ModelEntry)
+	}
+	c.Models[name] = entry
+}
+
+// RemoveModel deletes a named model alias. Returns false if the name was not found.
+func (c *Config) RemoveModel(name string) bool {
+	if _, ok := c.Models[name]; !ok {
+		return false
+	}
+	delete(c.Models, name)
+	return true
+}
