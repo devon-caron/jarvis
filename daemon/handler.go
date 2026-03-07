@@ -87,7 +87,11 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		msgs = append([]protocol.ChatMessage{{Role: "system", Content: h.Config.SystemPrompt}}, msgs...)
 	}
 
-	// Web search augmentation
+	// Wikipedia search augmentation
+	if req.WebSearch && h.Searcher == nil {
+		rw.Write(protocol.ErrorResponse("search requested but no ZIM files configured (add zim_paths to config)"))
+		return
+	}
 	if req.WebSearch && h.Searcher != nil {
 		userPrompt := ""
 		for i := len(msgs) - 1; i >= 0; i-- {
@@ -100,13 +104,20 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 			results, err := h.Searcher.Search(ctx, userPrompt)
 			if err == nil && len(results) > 0 {
 				searchCtx := search.FormatResults(results)
-				// Insert search context as system message before user messages
-				msgs = append([]protocol.ChatMessage{{Role: "system", Content: searchCtx}}, msgs...)
+				// Append search context to the existing system message so the
+				// chat template sees only one system message (required by most
+				// models, e.g. Llama which enforces strict role alternation).
+				if len(msgs) > 0 && msgs[0].Role == "system" {
+					msgs[0].Content += "\n\n" + searchCtx
+				} else {
+					msgs = append([]protocol.ChatMessage{{Role: "system", Content: searchCtx}}, msgs...)
+				}
 			} else if err == nil && len(results) == 0 {
 				rw.Write(protocol.ErrorResponse("zero results from search"))
 				return
 			} else if err != nil {
-				rw.Write(protocol.ErrorResponse(fmt.Sprintf("unexpected error encountered: %v", err)))
+				rw.Write(protocol.ErrorResponse(fmt.Sprintf("search error: %v", err)))
+				return
 			}
 		}
 	}

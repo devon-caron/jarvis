@@ -33,8 +33,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.SystemPrompt != "You are a helpful AI assistant." {
 		t.Errorf("SystemPrompt = %q", cfg.SystemPrompt)
 	}
-	if cfg.Search.Provider != "brave" {
-		t.Errorf("Search.Provider = %q, want brave", cfg.Search.Provider)
+	if len(cfg.Search.ZimPaths) != 0 {
+		t.Errorf("Search.ZimPaths = %v, want empty", cfg.Search.ZimPaths)
 	}
 	if cfg.Search.MaxResults != 5 {
 		t.Errorf("Search.MaxResults = %d, want 5", cfg.Search.MaxResults)
@@ -95,8 +95,8 @@ inference:
   timeout: 60
 system_prompt: "Custom prompt"
 search:
-  provider: brave
-  api_key: "test-key"
+  zim_paths:
+    - /path/to/wiki.zim
   max_results: 3
 llama_server:
   ik_binary_path: /opt/ik/llama-server
@@ -151,8 +151,8 @@ llama_server:
 	if cfg.SystemPrompt != "Custom prompt" {
 		t.Errorf("SystemPrompt = %q", cfg.SystemPrompt)
 	}
-	if cfg.Search.APIKey != "test-key" {
-		t.Errorf("Search.APIKey = %q", cfg.Search.APIKey)
+	if len(cfg.Search.ZimPaths) != 1 || cfg.Search.ZimPaths[0] != "/path/to/wiki.zim" {
+		t.Errorf("Search.ZimPaths = %v, want [/path/to/wiki.zim]", cfg.Search.ZimPaths)
 	}
 	if cfg.Search.MaxResults != 3 {
 		t.Errorf("Search.MaxResults = %d, want 3", cfg.Search.MaxResults)
@@ -219,28 +219,21 @@ func TestResolveModel_NotFound(t *testing.T) {
 	}
 }
 
-func TestSearchAPIKey_FromConfig(t *testing.T) {
+func TestZimPaths_DefaultEmpty(t *testing.T) {
 	cfg := Defaults()
-	cfg.Search.APIKey = "config-key"
-	if got := cfg.SearchAPIKey(); got != "config-key" {
-		t.Errorf("SearchAPIKey() = %q, want config-key", got)
+	if len(cfg.Search.ZimPaths) != 0 {
+		t.Errorf("default ZimPaths should be empty, got %v", cfg.Search.ZimPaths)
 	}
 }
 
-func TestSearchAPIKey_FromEnv(t *testing.T) {
-	t.Setenv("BRAVE_API_KEY", "env-key")
+func TestZimPaths_SetAndRetrieve(t *testing.T) {
 	cfg := Defaults()
-	if got := cfg.SearchAPIKey(); got != "env-key" {
-		t.Errorf("SearchAPIKey() = %q, want env-key", got)
+	cfg.Search.ZimPaths = []string{"/path/to/wiki.zim", "/path/to/other.zim"}
+	if len(cfg.Search.ZimPaths) != 2 {
+		t.Errorf("ZimPaths length = %d, want 2", len(cfg.Search.ZimPaths))
 	}
-}
-
-func TestSearchAPIKey_ConfigOverridesEnv(t *testing.T) {
-	t.Setenv("BRAVE_API_KEY", "env-key")
-	cfg := Defaults()
-	cfg.Search.APIKey = "config-key"
-	if got := cfg.SearchAPIKey(); got != "config-key" {
-		t.Errorf("SearchAPIKey() = %q, want config-key", got)
+	if cfg.Search.ZimPaths[0] != "/path/to/wiki.zim" {
+		t.Errorf("ZimPaths[0] = %q", cfg.Search.ZimPaths[0])
 	}
 }
 

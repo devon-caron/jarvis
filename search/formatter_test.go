@@ -24,7 +24,7 @@ func TestFormatResults_Single(t *testing.T) {
 
 	formatted := FormatResults(results)
 
-	if !strings.Contains(formatted, "Web search results:") {
+	if !strings.Contains(formatted, "Wikipedia search results:") {
 		t.Error("should contain header")
 	}
 	if !strings.Contains(formatted, "1. Go Programming") {
@@ -36,8 +36,8 @@ func TestFormatResults_Single(t *testing.T) {
 	if !strings.Contains(formatted, "The Go programming language") {
 		t.Error("should contain description")
 	}
-	if !strings.Contains(formatted, "Cite sources") {
-		t.Error("should contain citation instruction")
+	if !strings.Contains(formatted, "Wikipedia articles") {
+		t.Error("should contain Wikipedia reference")
 	}
 }
 

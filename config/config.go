@@ -77,11 +77,10 @@ type InferenceConfig struct {
 	Timeout     int     `yaml:"timeout"`
 }
 
-// SearchConfig configures web search.
+// SearchConfig configures ZIM file search.
 type SearchConfig struct {
-	Provider   string `yaml:"provider"`
-	APIKey     string `yaml:"api_key"`
-	MaxResults int    `yaml:"max_results"`
+	ZimPaths   []string `yaml:"zim_paths"`
+	MaxResults int      `yaml:"max_results"`
 }
 
 // Defaults returns a Config with sensible default values.
@@ -102,7 +101,6 @@ func Defaults() *Config {
 		},
 		SystemPrompt: "You are a helpful AI assistant.",
 		Search: SearchConfig{
-			Provider:   "brave",
 			MaxResults: 5,
 		},
 		LlamaServer: LlamaServerConfig{
@@ -172,14 +170,6 @@ func WriteDefault() (string, error) {
 func (c *Config) ResolveModel(name string) (ModelEntry, bool) {
 	entry, ok := c.Models[name]
 	return entry, ok
-}
-
-// SearchAPIKey returns the search API key, checking the env var as fallback.
-func (c *Config) SearchAPIKey() string {
-	if c.Search.APIKey != "" {
-		return c.Search.APIKey
-	}
-	return os.Getenv("BRAVE_API_KEY")
 }
 
 // Save writes the config to the given path as YAML.

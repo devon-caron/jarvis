@@ -52,8 +52,13 @@ func Run() error {
 
 	// Set up search
 	var searcher search.Searcher
-	if apiKey := cfg.SearchAPIKey(); apiKey != "" {
-		searcher = search.NewBraveSearcher(apiKey, cfg.Search.MaxResults)
+	if len(cfg.Search.ZimPaths) > 0 {
+		zs, err := search.NewZimSearcher(cfg.Search.ZimPaths, cfg.Search.MaxResults)
+		if err != nil {
+			log.Printf("warning: failed to open ZIM files: %v", err)
+		} else {
+			searcher = zs
+		}
 	}
 
 	// Create handler and server

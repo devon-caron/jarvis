@@ -54,7 +54,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().BoolVarP(&webSearch, "web", "w", false, "Augment prompt with web search results")
+	rootCmd.Flags().BoolVarP(&webSearch, "web", "w", false, "Augment prompt with Wikipedia search results")
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
 	rootCmd.Flags().StringVar(&systemPrompt, "system", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
