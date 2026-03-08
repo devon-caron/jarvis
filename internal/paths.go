@@ -38,3 +38,17 @@ func SocketPath() string {
 	}
 	return fmt.Sprintf("/tmp/jarvis-%d.sock", os.Getuid())
 }
+
+// LogDir returns the log directory path.
+func LogDir() string {
+	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
+		return filepath.Join(dir, "jarvis")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "jarvis")
+}
+
+// LogPath returns the path to the daemon log file.
+func LogPath() string {
+	return filepath.Join(LogDir(), "daemon.log")
+}
