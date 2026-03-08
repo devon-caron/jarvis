@@ -118,6 +118,10 @@ func Defaults() *Config {
 	}
 }
 
+func Load() (*Config, error) {
+	return LoadFrom(internal.ConfigPath())
+}
+
 // LoadFrom reads a config file from the given path.
 // If the file doesn't exist, returns defaults.
 func LoadFrom(path string) (*Config, error) {
