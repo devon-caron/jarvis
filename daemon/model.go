@@ -43,7 +43,26 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 	}
 }
 
-func (m *ModelRegistry) Shutdown() {
-	// TODO: Unimplementeds
-	panic("unimplemented")
+func (r *ModelRegistry) Shutdown() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for name, slot := range r.slots {
+		slot.backend.UnloadModel()
+		delete(r.slots, name)
+	}
+	for gpu := range r.gpuInUse {
+		delete(r.gpuInUse, gpu)
+	}
+}
+
+func (s *ModelSlot) Unload() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
+	return s.backend.UnloadModel()
 }
