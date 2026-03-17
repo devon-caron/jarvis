@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 
@@ -41,4 +42,8 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{
 		Config:   cfg,
 		StopCh:   stopCh,
 	}
+}
+
+func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *ResponseWriter) {
+	// TODO: Implement request handling logic
 }

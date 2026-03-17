@@ -27,7 +27,7 @@ func ConnectTo(socketPath string) (*Client, error) {
 	}
 
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 0, 64*1024), 5*1024*1024)
+	scanner.Buffer(make([]byte, 0, internal.BUFFER_PAGE_SIZE), internal.BUFFER_SIZE)
 	return &Client{conn: conn, scanner: scanner}, nil
 }
 

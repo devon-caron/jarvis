@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
@@ -69,6 +70,40 @@ func Run(loggers ...*logrus.Logger) error {
 	server := NewServer(internal.SocketPath(), handler)
 	log.Println("Server created: ", server)
 
+	if err := server.Listen(); err != nil {
+		return err
+	}
+	defer server.Close()
+
+	log.Println("Server listening on: ", internal.SocketPath())
+	logger.Info("Server listening on: ", internal.SocketPath())
+
+	// Signal handling
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Serve in a goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve()
+	}()
+
+	// Wait for stop signal or serve error
+	select {
+	case <-stopCh:
+		log.Printf("stop requested, shutting down")
+	case sig := <-sigCh:
+		log.Printf("received signal %v, shutting down", sig)
+	case err := <-errCh:
+		if err != nil {
+			log.Printf("server error: %v", err)
+			return err
+		}
+	}
+
+	server.Close()
+	registry.Shutdown()
+	log.Printf("daemon stopped")
 	return nil
 }
 
