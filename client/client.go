@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"time"
 
@@ -81,6 +82,7 @@ func (c *Client) ReadResponse() (*protocol.Response, error) {
 }
 
 func (c *Client) StreamChat(req *protocol.Request, onToken func(string)) error {
+	log.Printf("streaming chat request: %v", req)
 	return fmt.Errorf("unimplmented")
 }
 

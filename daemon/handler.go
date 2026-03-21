@@ -10,6 +10,7 @@ import (
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
+	// "github.com/devon-caron/jarvis/search"
 )
 
 type ResponseWriter struct {
@@ -35,7 +36,8 @@ func (rw *ResponseWriter) Write(resp *protocol.Response) error {
 type Handler struct {
 	Registry *ModelRegistry
 	Config   *config.Config
-	StopCh   chan struct{}
+	// Searcher search.Searcher
+	StopCh chan struct{}
 }
 
 // NewHandler creates a Handler with the given dependencies.
@@ -43,7 +45,8 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{
 	return &Handler{
 		Registry: registry,
 		Config:   cfg,
-		StopCh:   stopCh,
+		// Searcher: searcher,
+		StopCh: stopCh,
 	}
 }
 
@@ -216,4 +219,110 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 	log.Printf("model loaded successfully")
 
 	rw.Write(protocol.OKResponse())
+}
+
+func (h *Handler) handleUnload(ctx context.Context, req *protocol.UnloadRequest, rw *ResponseWriter) {
+	// TODO: Implement unload model logic
+	rw.Write(protocol.OKResponse())
+}
+
+func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw *ResponseWriter) {
+	if req == nil {
+		rw.Write(protocol.ErrorResponse("missing chat request payload"))
+		return
+	}
+
+	log.Printf("chat request received: model=%s, messages=%d, web_search=%v, system_prompt=%v, opts=%+v, shell_pid=%d, clear_context=%v",
+		req.Model, len(req.Messages), req.WebSearch, req.SystemPrompt != "", req.Opts, req.ShellPID, req.ClearContext)
+
+	msgs := req.Messages
+
+	if req.SystemPrompt != "" {
+		msgs = append([]protocol.ChatMessage{
+			{
+				Role:    "system",
+				Content: req.SystemPrompt,
+			},
+		}, msgs...)
+	} else if h.Config.SystemPrompt != "" {
+		msgs = append([]protocol.ChatMessage{
+			{
+				Role:    "system",
+				Content: h.Config.SystemPrompt,
+			},
+		}, msgs...)
+	}
+
+	// Inject terminal context if provided
+	// if req.TerminalContext != "" {
+	// 	ctxMsg := protocol.ChatMessage{
+	// 		Role:    "system",
+	// 		Content: "Recent terminal output (for context):\n```\n" + req.TerminalContext + "\n```",
+	// 	}
+	// 	// Insert before user messages but after system prompt
+	// 	insertIdx := 0
+	// 	for insertIdx < len(msgs) && msgs[insertIdx].Role == "system" {
+	// 		insertIdx++
+	// 	}
+	// 	msgs = append(msgs[:insertIdx], append([]protocol.ChatMessage{ctxMsg}, msgs[insertIdx:]...)...)
+	// }
+
+	// // Web search augmentation
+	// if req.WebSearch && h.Searcher != nil {
+	// 	userPrompt := ""
+	// 	for i := len(msgs) - 1; i >= 0; i-- {
+	// 		if msgs[i].Role == "user" {
+	// 			userPrompt = msgs[i].Content
+	// 			break
+	// 		}
+	// 	}
+	// 	if userPrompt != "" {
+	// 		results, err := h.Searcher.Search(ctx, userPrompt)
+	// 		if err == nil && len(results) > 0 {
+	// 			searchCtx := search.FormatResults(results)
+	// 			// Insert search context as system message before user messages
+	// 			msgs = append([]protocol.ChatMessage{{Role: "system", Content: searchCtx}}, msgs...)
+	// 		} else if err == nil && len(results) == 0 {
+	// 			rw.Write(protocol.ErrorResponse("zero results from search"))
+	// 			return
+	// 		} else if err != nil {
+	// 			rw.Write(protocol.ErrorResponse(fmt.Sprintf("unexpected error encountered: %v", err)))
+	// 		}
+	// 	}
+	// }
+
+	// Merge inference opts with config defaults
+	opts := req.Opts
+	if opts.MaxTokens == 0 {
+		opts.MaxTokens = h.Config.Inference.MaxTokens
+	}
+	if opts.Temperature == 0 {
+		opts.Temperature = h.Config.Inference.Temperature
+	}
+	if opts.TopP == 0 {
+		opts.TopP = h.Config.Inference.TopP
+	}
+	if opts.TopK == 0 {
+		opts.TopK = h.Config.Inference.TopK
+	}
+
+	// Resolve GPU pointer to int (-1 = not specified).
+	gpu := -1
+	if req.GPU != nil {
+		gpu = *req.GPU
+	}
+
+	// Route to model by name, GPU, or auto-route.
+	err := h.Registry.Chat(ctx, req.Model, gpu, msgs, opts, func(token string) {
+		log.Printf("chat function received token %v", token)
+		rw.Write(protocol.DeltaTokenResponse(token))
+	}, req.ShellPID, req.ClearContext)
+	if err != nil {
+		log.Printf("chat function received error: %v", err)
+		rw.Write(protocol.ErrorResponse(err.Error()))
+		return
+	}
+
+	log.Printf("chat function received end token")
+	rw.Write(protocol.EndTokenResponse())
 }
