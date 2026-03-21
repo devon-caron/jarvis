@@ -45,5 +45,23 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{
 }
 
 func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *ResponseWriter) {
-	// TODO: Implement request handling logic
+	switch req.Type {
+	case protocol.ReqLoad:
+		// TODO: Implement load model logic
+		rw.Write(protocol.OKResponse())
+	case protocol.ReqUnload:
+		// TODO: Implement unload model logic
+		rw.Write(protocol.OKResponse())
+	case protocol.ReqStop:
+		// TODO: Implement stop model logic
+		rw.Write(protocol.OKResponse())
+	case protocol.ReqStatus:
+		// TODO: Implement status check logic
+		rw.Write(protocol.OKResponse())
+	case protocol.ReqChat:
+		// TODO: Implement chat logic
+		rw.Write(protocol.OKResponse())
+	default:
+		rw.Write(protocol.ErrorResponse("unknown request type"))
+	}
 }

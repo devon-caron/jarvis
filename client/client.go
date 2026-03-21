@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
@@ -36,8 +37,47 @@ func (c *Client) Close() error {
 	return fmt.Errorf("unimplmented")
 }
 
+func (c *Client) Send(req *protocol.Request) error {
+	data, err := protocol.MarshalRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	data = append(data, '\n')
+
+	_, err = c.conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) SendAndWaitOK(req *protocol.Request) error {
-	return fmt.Errorf("unimplmented")
+	if err := c.Send(req); err != nil {
+		return err
+	}
+	c.conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
+	defer c.conn.SetReadDeadline(time.Time{})
+	resp, err := c.ReadResponse()
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	if resp.Type == protocol.RespError && resp.Error != nil {
+		return fmt.Errorf("daemon error: %s", resp.Error.Message)
+	}
+	if resp.Type != protocol.RespOK {
+		return fmt.Errorf("expected OK response, got %s", resp.Type)
+	}
+	return nil
+}
+
+func (c *Client) ReadResponse() (*protocol.Response, error) {
+	if !c.scanner.Scan() {
+		if c.scanner.Err() != nil {
+			return nil, fmt.Errorf("scanner error: %w", c.scanner.Err())
+		}
+		return nil, fmt.Errorf("connection closed")
+	}
+	return protocol.UnmarshalResponse(c.scanner.Bytes())
 }
 
 func (c *Client) StreamChat(req *protocol.Request, onToken func(string)) error {
