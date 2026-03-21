@@ -50,5 +50,5 @@ func LogDir() string {
 
 // LogPath returns the path to the daemon log file.
 func LogPath() string {
-	return filepath.Join(LogDir(), "daemon.log")
+	return filepath.Join(LogDir(), LogFileName)
 }

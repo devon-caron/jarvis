@@ -14,13 +14,10 @@ var daemonCmd = &cobra.Command{
 	Use:    "_daemon",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return daemon.Run(debugLogger)
+		return daemon.Run()
 	},
 }
 
 func init() {
-	debugLogger = logrus.New()
-	debugLogger.SetLevel(logrus.DebugLevel)
-	debugLogger.Info("Initialized debug logger")
 	rootCmd.AddCommand(daemonCmd)
 }
