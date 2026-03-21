@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -41,6 +42,11 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 		newBackend: newBackend,
 		cfg:        cfg,
 	}
+}
+
+func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
+
+	return nil
 }
 
 func (r *ModelRegistry) Shutdown() {

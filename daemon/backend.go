@@ -12,7 +12,7 @@ import (
 type LoadOpts struct {
 	ContextSize    int
 	SplitMode      string
-	Parallel       int
+	Parallel       int // num concurrent inference requests per server
 	FlashAttention bool
 	BatchSize      int    // micro-batch size → llama-server -ub
 	TensorSplit    string // GPU weight distribution → llama-server -ts
