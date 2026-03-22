@@ -368,6 +368,10 @@ func (h *Handler) handleStatus(rw *ResponseWriter) {
 }
 
 func (h *Handler) handleStop(rw *ResponseWriter) {
-	// TODO: Implement stop model logic
 	rw.Write(protocol.OKResponse())
+	// Signal the daemon to stop
+	select {
+	case h.StopCh <- struct{}{}:
+	default:
+	}
 }
