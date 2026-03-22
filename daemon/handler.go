@@ -51,12 +51,12 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{
 }
 
 func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *ResponseWriter) {
+	log.Printf("handling request: %v", req)
 	switch req.Type {
 	case protocol.ReqLoad:
 		h.handleLoad(ctx, req.Load, rw)
 	case protocol.ReqUnload:
-		// TODO: Implement unload model logic
-		rw.Write(protocol.OKResponse())
+		h.handleUnload(req.Unload, rw)
 	case protocol.ReqStop:
 		// TODO: Implement stop model logic
 		rw.Write(protocol.OKResponse())
@@ -64,8 +64,7 @@ func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *Respons
 		// TODO: Implement status check logic
 		rw.Write(protocol.OKResponse())
 	case protocol.ReqChat:
-		// TODO: Implement chat logic
-		rw.Write(protocol.OKResponse())
+		h.handleChat(ctx, req.Chat, rw)
 	default:
 		rw.Write(protocol.ErrorResponse("unknown request type"))
 	}
@@ -221,9 +220,23 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 	rw.Write(protocol.OKResponse())
 }
 
-func (h *Handler) handleUnload(ctx context.Context, req *protocol.UnloadRequest, rw *ResponseWriter) {
-	// TODO: Implement unload model logic
-	rw.Write(protocol.OKResponse())
+func (h *Handler) handleUnload(req *protocol.UnloadRequest, rw *ResponseWriter) {
+	log.Println("unload request received")
+
+	// if the request is nil, there is an error and we must not continue.
+	if req == nil {
+		log.Printf("unload handler failed: unload request is nil")
+		rw.Write(protocol.ErrorResponse("unload handler failed: unload request is nil"))
+		return
+	}
+
+	if err := h.Registry.Unload(req.Name); err != nil {
+		log.Printf("unload handler failed: %v", err)
+		rw.Write(protocol.ErrorResponse(fmt.Sprintf("unload handler failed: %v", err)))
+		return
+	}
+
+	log.Println("unload request processed")
 }
 
 func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw *ResponseWriter) {

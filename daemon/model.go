@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -50,6 +52,46 @@ func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []p
 
 func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
 
+	return nil
+}
+
+// Unload unloads a specific model by name. If name is empty and only one model
+// is loaded, unloads that one.
+func (r *ModelRegistry) Unload(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if name == "" {
+		if len(r.slots) == 1 {
+			for n := range r.slots {
+				name = n
+			}
+		} else if len(r.slots) == 0 {
+			return errors.New("no model loaded")
+		} else {
+			names := make([]string, 0, len(r.slots))
+			for n := range r.slots {
+				names = append(names, n)
+			}
+			return fmt.Errorf("multiple models loaded, specify which to unload: %v", names)
+		}
+	}
+
+	if _, ok := r.slots[name]; !ok {
+		return fmt.Errorf("model %q not loaded", name)
+	}
+	return r.unloadLocked(name)
+}
+
+func (r *ModelRegistry) unloadLocked(name string) error {
+	slot := r.slots[name]
+	if err := slot.Unload(); err != nil {
+		return err
+	}
+	delete(r.slots, name)
+	for _, gpu := range slot.gpus {
+		delete(r.gpuInUse, gpu)
+	}
 	return nil
 }
 
