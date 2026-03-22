@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/devon-caron/jarvis/config"
@@ -51,22 +52,20 @@ func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{
 }
 
 func (h *Handler) Handle(ctx context.Context, req *protocol.Request, rw *ResponseWriter) {
-	log.Printf("handling request: %v", req)
+	log.Printf("handling request, type: %s", req.Type)
 	switch req.Type {
 	case protocol.ReqLoad:
 		h.handleLoad(ctx, req.Load, rw)
 	case protocol.ReqUnload:
 		h.handleUnload(req.Unload, rw)
-	case protocol.ReqStop:
-		// TODO: Implement stop model logic
-		rw.Write(protocol.OKResponse())
-	case protocol.ReqStatus:
-		// TODO: Implement status check logic
-		rw.Write(protocol.OKResponse())
 	case protocol.ReqChat:
 		h.handleChat(ctx, req.Chat, rw)
+	case protocol.ReqStatus:
+		h.handleStatus(rw)
+	case protocol.ReqStop:
+		h.handleStop(rw)
 	default:
-		rw.Write(protocol.ErrorResponse("unknown request type"))
+		rw.Write(protocol.ErrorResponse(fmt.Sprintf("unknown request type: %s", req.Type)))
 	}
 }
 
@@ -338,4 +337,37 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 
 	log.Printf("chat function received end token")
 	rw.Write(protocol.EndTokenResponse())
+}
+
+// dc: Written post one model load update
+func (h *Handler) handleStatus(rw *ResponseWriter) {
+	log.Printf("handling status request")
+	models := h.Registry.Status()
+	if len(models) < 1 {
+		rw.Write(protocol.StatusResponse(&protocol.StatusPayload{
+			Running:     true,
+			ModelLoaded: false,
+			PID:         os.Getpid(),
+		}))
+		return
+	}
+
+	myModel := models[0]
+
+	rw.Write(protocol.StatusResponse(&protocol.StatusPayload{
+		Running:     true,
+		ModelLoaded: h.Registry.modelLoaded,
+		ModelPath:   myModel.ModelPath,
+		PID:         os.Getpid(),
+		Model: &protocol.ModelStatus{
+			ModelPath: myModel.ModelPath,
+			GPUs:      myModel.GPUInfo,
+		},
+		Models: models,
+	}))
+}
+
+func (h *Handler) handleStop(rw *ResponseWriter) {
+	// TODO: Implement stop model logic
+	rw.Write(protocol.OKResponse())
 }

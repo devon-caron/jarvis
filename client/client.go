@@ -86,6 +86,20 @@ func (c *Client) StreamChat(req *protocol.Request, onToken func(string)) error {
 	return fmt.Errorf("unimplmented")
 }
 
+// SendAndReadStatus sends a request and reads a status response.
 func (c *Client) SendAndReadStatus(req *protocol.Request) (*protocol.StatusPayload, error) {
-	return nil, fmt.Errorf("unimplmented")
+	if err := c.Send(req); err != nil {
+		return nil, err
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		return nil, err
+	}
+	if resp.Type == protocol.RespError && resp.Error != nil {
+		return nil, fmt.Errorf("%s", resp.Error.Message)
+	}
+	if resp.Type != protocol.RespStatus || resp.Status == nil {
+		return nil, fmt.Errorf("unexpected response: %s", resp.Type)
+	}
+	return resp.Status, nil
 }
