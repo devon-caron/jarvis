@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
