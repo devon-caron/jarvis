@@ -33,8 +33,7 @@ func ConnectTo(socketPath string) (*Client, error) {
 }
 
 func (c *Client) Close() error {
-
-	return fmt.Errorf("unimplmented")
+	return c.conn.Close()
 }
 
 func (c *Client) Send(req *protocol.Request) error {
