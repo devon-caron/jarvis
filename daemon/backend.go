@@ -188,7 +188,35 @@ func (b *Backend) LoadModel(ctx context.Context, modelPath string, gpus []int, o
 }
 
 func (b *Backend) UnloadModel() error {
-	return fmt.Errorf("unimplemented")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.loaded || b.process == nil {
+		b.loaded = false
+		return nil
+	}
+
+	b.process.Process.Signal(syscall.SIGTERM)
+
+	done := make(chan struct{})
+	go func() {
+		b.process.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		b.process.Process.Signal(syscall.SIGKILL)
+		<-done
+	}
+
+	b.loaded = false
+	b.process = nil
+	b.port = 0
+	b.path = ""
+	b.gpus = nil
+	return nil
 }
 
 func (b *Backend) IsLoaded() bool {
