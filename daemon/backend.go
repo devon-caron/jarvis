@@ -192,7 +192,7 @@ func (b *Backend) UnloadModel() error {
 }
 
 func (b *Backend) IsLoaded() bool {
-	return false
+	return b.loaded
 }
 
 func (b *Backend) ModelPath() string {
