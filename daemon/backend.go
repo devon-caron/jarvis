@@ -71,6 +71,8 @@ func NewServerBackend(config *config.Config) ModelBackend {
 	}
 }
 
+// LoadModel loads a model from the given path onto the specified GPUs.
+// The context allows cancellation (e.g. when the client disconnects).
 func (b *Backend) LoadModel(ctx context.Context, modelPath string, gpus []int, opts LoadOpts) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

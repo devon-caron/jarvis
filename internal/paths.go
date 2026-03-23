@@ -40,6 +40,7 @@ func SocketPath() string {
 }
 
 // LogDir returns the log directory path.
+// By default, the program uses XDG defaults if available and ~/.local/share if not.
 func LogDir() string {
 	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
 		return filepath.Join(dir, "jarvis")
