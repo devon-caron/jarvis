@@ -66,12 +66,11 @@ type ErrorPayload struct {
 
 // StatusPayload carries daemon and model status info.
 type StatusPayload struct {
-	Running     bool         `json:"running"`
-	ModelLoaded bool         `json:"model_loaded"`
-	ModelPath   string       `json:"model_path,omitempty"`
-	PID         int          `json:"pid"`
-	Model       *ModelStatus `json:"model,omitempty"`
-	Models      []SlotInfo   `json:"models,omitempty"`
+	Running     bool       `json:"running"`
+	ModelLoaded bool       `json:"model_loaded"`
+	ModelPath   string     `json:"model_path,omitempty"`
+	PID         int        `json:"pid"`
+	Model       *ModelInfo `json:"model,omitempty"`
 }
 
 // MarshalRequest serializes a request to JSON bytes (no trailing newline).

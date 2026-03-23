@@ -99,7 +99,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	rw := NewResponseWriter(conn)
 	s.handler.Handle(ctx, req, rw)
-
 }
 
 func (s *Server) Close() error {

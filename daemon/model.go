@@ -12,160 +12,126 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
-// ModelSlot is a per-model container that manages lifecycle and inactivity timeout.
-type ModelSlot struct {
-	mu        sync.RWMutex
-	name      string
-	backend   ModelBackend
-	gpus      []int
-	timeout   time.Duration
-	lastUsed  time.Time
-	timer     *time.Timer
-	onExpire  func(name string)
-	historyMu sync.Mutex
-	history   map[int][]protocol.ChatMessage // keyed by shell PID
-}
-
-// ModelRegistry manages a collection of model slots with GPU conflict detection.
+// ModelRegistry manages loading and unloading a single model at a time.
 type ModelRegistry struct {
-	mu          sync.RWMutex
-	modelLoaded bool
-	slots       map[string]*ModelSlot // keyed by model name
-	gpuInUse    map[int]string        // gpu_id → model name
-	loading     map[string]bool       // models currently being loaded
-	newBackend  func(*config.Config) ModelBackend
-	cfg         *config.Config
+	mu         sync.RWMutex
+	loaded     bool
+	name       string
+	path       string
+	gpus       []int
+	backend    ModelBackend
+	newBackend func(*config.Config) ModelBackend
+	cfg        *config.Config
 }
 
 // NewModelRegistry creates a new registry.
 func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelBackend) *ModelRegistry {
 	return &ModelRegistry{
-		slots:      make(map[string]*ModelSlot),
-		gpuInUse:   make(map[int]string),
-		loading:    make(map[string]bool),
 		newBackend: newBackend,
 		cfg:        cfg,
 	}
 }
 
 func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
-	return nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if !r.loaded || r.backend == nil {
+		return errors.New("no model loaded")
+	}
+
+	return r.backend.RunChat(ctx, msgs, opts, onToken)
 }
 
 func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.modelLoaded {
-		return errors.New("only one model can be loaded at a time")
+	if r.loaded {
+		return errors.New("a model is already loaded; unload it first")
 	}
 
-	r.modelLoaded = true
+	backend := r.newBackend(r.cfg)
+	if err := backend.LoadModel(ctx, path, gpus, opts); err != nil {
+		return fmt.Errorf("backend failed to load model: %w", err)
+	}
+
+	r.backend = backend
+	r.name = name
+	r.path = path
+	r.gpus = gpus
+	r.loaded = true
 
 	return nil
 }
 
-// Unload unloads a specific model by name. If name is empty and only one model
-// is loaded, unloads that one.
+// Unload unloads the currently loaded model.
 func (r *ModelRegistry) Unload(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.modelLoaded = false
-
-	if name == "" {
-		if len(r.slots) == 1 {
-			for n := range r.slots {
-				name = n
-			}
-		} else if len(r.slots) == 0 {
-			return errors.New("no model loaded")
-		} else {
-			names := make([]string, 0, len(r.slots))
-			for n := range r.slots {
-				names = append(names, n)
-			}
-			return fmt.Errorf("multiple models loaded, specify which to unload: %v", names)
-		}
+	if !r.loaded {
+		return errors.New("no model loaded")
 	}
 
-	if _, ok := r.slots[name]; !ok {
-		return fmt.Errorf("model %q not loaded", name)
+	if name != "" && name != r.name {
+		return fmt.Errorf("model %q is not loaded (loaded: %q)", name, r.name)
 	}
 
-	return r.unloadLocked(name)
-}
-
-func (r *ModelRegistry) unloadLocked(name string) error {
-	slot := r.slots[name]
-	if err := slot.Unload(); err != nil {
+	if err := r.backend.UnloadModel(); err != nil {
 		return err
 	}
-	delete(r.slots, name)
-	for _, gpu := range slot.gpus {
-		delete(r.gpuInUse, gpu)
-	}
+
+	r.backend = nil
+	r.name = ""
+	r.path = ""
+	r.gpus = nil
+	r.loaded = false
+
 	return nil
 }
 
-// Status returns info for all loaded models.
-func (r *ModelRegistry) Status() []protocol.SlotInfo {
+// Status returns info about the currently loaded model, if any.
+func (r *ModelRegistry) Status() *protocol.ModelInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	infos := make([]protocol.SlotInfo, 0, len(r.slots))
-	for _, slot := range r.slots {
-		infos = append(infos, slot.Status())
+	if !r.loaded || r.backend == nil {
+		return nil
 	}
-	return infos
+
+	info := &protocol.ModelInfo{
+		Name:      r.name,
+		ModelPath: r.backend.ModelPath(),
+		GPUs:      r.gpus,
+	}
+
+	if status, err := r.backend.GetStatus(); err == nil && status != nil {
+		info.GPUInfo = status.GPUs
+	} else if err != nil {
+		log.Printf("failed to get backend status for model %s: %v", r.name, err)
+	}
+
+	return info
+}
+
+// IsLoaded returns whether a model is currently loaded.
+func (r *ModelRegistry) IsLoaded() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.loaded
 }
 
 func (r *ModelRegistry) Shutdown() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for name, slot := range r.slots {
-		slot.backend.UnloadModel()
-		delete(r.slots, name)
+	if r.loaded && r.backend != nil {
+		r.backend.UnloadModel()
+		r.backend = nil
+		r.name = ""
+		r.path = ""
+		r.gpus = nil
+		r.loaded = false
 	}
-	for gpu := range r.gpuInUse {
-		delete(r.gpuInUse, gpu)
-	}
-}
-
-func (s *ModelSlot) Unload() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.timer != nil {
-		s.timer.Stop()
-		s.timer = nil
-	}
-	return s.backend.UnloadModel()
-}
-
-func (s *ModelSlot) Status() protocol.SlotInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	info := protocol.SlotInfo{
-		Name:      s.name,
-		ModelPath: s.backend.ModelPath(),
-		GPUs:      s.gpus,
-		LastUsed:  s.lastUsed,
-	}
-
-	if s.timeout > 0 {
-		info.Timeout = s.timeout.String()
-	}
-
-	var status *protocol.ModelStatus
-	var err error
-	if status, err = s.backend.GetStatus(); err == nil && status != nil {
-		info.GPUInfo = status.GPUs
-	} else if err != nil {
-		log.Printf("failed to get backend status for model %s: %v", s.name, err)
-	}
-
-	return info
 }

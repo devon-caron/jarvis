@@ -339,32 +339,23 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 	rw.Write(protocol.EndTokenResponse())
 }
 
-// dc: Written post one model load update
 func (h *Handler) handleStatus(rw *ResponseWriter) {
 	log.Printf("handling status request")
-	models := h.Registry.Status()
-	if len(models) < 1 {
-		rw.Write(protocol.StatusResponse(&protocol.StatusPayload{
-			Running:     true,
-			ModelLoaded: false,
-			PID:         os.Getpid(),
-		}))
-		return
+
+	model := h.Registry.Status()
+
+	payload := &protocol.StatusPayload{
+		Running:     true,
+		ModelLoaded: h.Registry.IsLoaded(),
+		PID:         os.Getpid(),
 	}
 
-	myModel := models[0]
+	if model != nil {
+		payload.ModelPath = model.ModelPath
+		payload.Model = model
+	}
 
-	rw.Write(protocol.StatusResponse(&protocol.StatusPayload{
-		Running:     true,
-		ModelLoaded: h.Registry.modelLoaded,
-		ModelPath:   myModel.ModelPath,
-		PID:         os.Getpid(),
-		Model: &protocol.ModelStatus{
-			ModelPath: myModel.ModelPath,
-			GPUs:      myModel.GPUInfo,
-		},
-		Models: models,
-	}))
+	rw.Write(protocol.StatusResponse(payload))
 }
 
 func (h *Handler) handleStop(rw *ResponseWriter) {

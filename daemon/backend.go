@@ -1,18 +1,46 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/devon-caron/jarvis/config"
+	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
 )
+
+const serverReadyTimeout = 30 * time.Second
+
+type Backend struct {
+	mu         sync.RWMutex
+	path       string
+	port       int
+	process    *exec.Cmd
+	loaded     bool
+	gpus       []int
+	httpClient *http.Client
+	config     *config.Config
+}
 
 // LoadOpts holds llama-server tuning parameters for model loading.
 type LoadOpts struct {
 	ContextSize    int
 	SplitMode      string
 	Parallel       int // num concurrent inference requests per server
+	MLock          bool
 	FlashAttention bool
 	BatchSize      int    // micro-batch size → llama-server -ub
 	TensorSplit    string // GPU weight distribution → llama-server -ts
@@ -36,34 +64,251 @@ type ModelBackend interface {
 	GetStatus() (*protocol.ModelStatus, error)
 }
 
-type ServerBackend struct {
-	config *config.Config
-}
-
 func NewServerBackend(config *config.Config) ModelBackend {
-	return &ServerBackend{config: config}
+	return &Backend{
+		config:     config,
+		httpClient: &http.Client{Timeout: 0},
+	}
 }
 
-func (s *ServerBackend) LoadModel(ctx context.Context, modelPath string, gpus []int, opts LoadOpts) error {
-	return fmt.Errorf("unimplemented")
-}
+func (b *Backend) LoadModel(ctx context.Context, modelPath string, gpus []int, opts LoadOpts) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-func (s *ServerBackend) UnloadModel() error {
-	return fmt.Errorf("unimplemented")
-}
+	// Ensure file to be loaded is valid
+	if err := validateGGUF(modelPath); err != nil {
+		return fmt.Errorf("invalid model file: %w", err)
+	}
 
-func (s *ServerBackend) IsLoaded() bool {
-	return false
-}
+	// allocate free ephemeral port
+	port, err := allocatePort()
+	if err != nil {
+		return fmt.Errorf("failed to allocate port: %w", err)
+	}
 
-func (s *ServerBackend) ModelPath() string {
-	return "unimplemented"
-}
+	splitMode, err := NormalizeSplitMode(opts.SplitMode)
+	if err != nil {
+		return fmt.Errorf("invalid split mode: %w", err)
+	}
 
-func (s *ServerBackend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
+	binary := b.config.LlamaServer.ResolveBinary(splitMode)
+
+	// Validate binary's existence before running
+	if _, err := os.Stat(binary); os.IsNotExist(err) {
+		return fmt.Errorf("llama-server binary not found: %s", binary)
+	}
+
+	// Warn about known ik_llama.cpp crash with graph + parallel.
+	if splitMode == "graph" && opts.Parallel > 0 {
+		fmt.Printf("WARNING: -sm graph with --parallel %d may crash due to ik_llama.cpp KV cache bug\n", opts.Parallel)
+		log.Printf("WARNING: -sm graph with --parallel %d may crash due to ik_llama.cpp KV cache bug", opts.Parallel)
+	}
+
+	// Build command args.
+	args := []string{
+		"-m", modelPath,
+		"--host", "127.0.0.1",
+		"--port", strconv.Itoa(port),
+		"-c", strconv.Itoa(opts.ContextSize),
+	}
+
+	if opts.MLock {
+		args = append(args, "--mlock")
+	}
+
+	if splitMode != "" {
+		args = append(args, "-sm", splitMode)
+	}
+
+	if opts.Parallel > 0 {
+		args = append(args, "--parallel", strconv.Itoa(opts.Parallel))
+	}
+
+	if opts.FlashAttention {
+		args = append(args, "-fa", "on")
+	}
+
+	if opts.BatchSize > 0 {
+		args = append(args, "-ub", strconv.Itoa(opts.BatchSize))
+	}
+
+	if opts.TensorSplit != "" {
+		args = append(args, "-ts", opts.TensorSplit)
+	}
+
+	// Build command.
+	cmd := exec.Command(binary, args...)
+
+	// Set CUDA_VISIBLE_DEVICES.
+	if len(gpus) > 0 {
+		parts := make([]string, len(gpus))
+		for i, g := range gpus {
+			parts[i] = strconv.Itoa(g)
+		}
+		cmd.Env = append(os.Environ(), "CUDA_VISIBLE_DEVICES="+strings.Join(parts, ","))
+	} else {
+		cmd.Env = os.Environ()
+	}
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(&stderrBuf, log.Writer())
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start llama-server: %w", err)
+	}
+
+	// Monitor process exit in a goroutine so we can detect startup failures early.
+	exitCh := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		exitCh <- cmd.Wait()
+	}()
+
+	// Poll /health until ready.
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	if err := b.waitForHealth(ctx, healthURL, exitCh, &stderrBuf); err != nil {
+		// Kill the process if it's still running.
+		cmd.Process.Signal(syscall.SIGKILL)
+		wg.Wait()
+		return err
+	}
+
+	b.path = modelPath
+	b.port = port
+	b.process = cmd
+	b.loaded = true
+	b.gpus = gpus
 	return nil
 }
 
-func (s *ServerBackend) GetStatus() (*protocol.ModelStatus, error) {
+func (b *Backend) UnloadModel() error {
+	return fmt.Errorf("unimplemented")
+}
+
+func (b *Backend) IsLoaded() bool {
+	return false
+}
+
+func (b *Backend) ModelPath() string {
+	return "unimplemented"
+}
+
+func (b *Backend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
+	return nil
+}
+
+func (b *Backend) GetStatus() (*protocol.ModelStatus, error) {
 	return nil, fmt.Errorf("unimplemented")
+}
+
+func (b *Backend) waitForHealth(ctx context.Context, url string, exitCh <-chan error, stderrBuf *bytes.Buffer) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.After(serverReadyTimeout)
+	interval := 100 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("load cancelled")
+		case err := <-exitCh:
+			stderr := stderrBuf.String()
+			if isVRAMError(stderr) {
+				return fmt.Errorf("llama-server exited due to VRAM error: %w\n%s", err, stderr)
+			}
+			if err != nil {
+				return fmt.Errorf("llama-server exited: %w\n%s", err, stderr)
+			}
+			return fmt.Errorf("llama-server exited with unknown error: %s", stderr)
+		case <-deadline:
+			stderr := stderrBuf.String()
+			if isVRAMError(stderr) {
+				return fmt.Errorf("llama-server did not become ready within %s due to VRAM error: %s", serverReadyTimeout, stderr)
+			}
+			return fmt.Errorf("llama-server did not become ready within %s: %s", serverReadyTimeout, stderr)
+		default:
+		}
+
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("load cancelled")
+		case err := <-exitCh:
+			stderr := stderrBuf.String()
+			if isVRAMError(stderr) {
+				return fmt.Errorf("llama-server exited due to VRAM error: %w\n%s", err, stderr)
+			}
+			if err != nil {
+				return fmt.Errorf("llama-server exited: %w\n%s", err, stderr)
+			}
+			return fmt.Errorf("llama-server exited with unknown error: %s", stderr)
+		case <-time.After(interval):
+		}
+
+		if interval < 2*time.Second {
+			interval = interval * 3 / 2
+		}
+	}
+}
+
+// validateGGUF performs fast pre-checks on a model file before handing it to
+// llama-server. It catches missing files, non-GGUF files, and unsupported
+// GGUF versions early with clear error messages.
+func validateGGUF(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("model file not found: %s", path)
+		}
+		return fmt.Errorf("cannot open model file: %w", err)
+	}
+	defer f.Close()
+
+	// GGUF header: magic(4) + version(4) + tensor_count(8) + metadata_kv_count(8) = 24 bytes
+	var header [24]byte
+	if _, err := io.ReadFull(f, header[:]); err != nil {
+		return fmt.Errorf("file too small to be a valid GGUF model: %s", path)
+	}
+
+	if string(header[0:4]) != "GGUF" {
+		return fmt.Errorf("not a valid GGUF model file: %s", path)
+	}
+
+	version := binary.LittleEndian.Uint32(header[4:8])
+	if version < 2 || version > 3 {
+		return fmt.Errorf("unsupported GGUF version %d: %s", version, path)
+	}
+
+	return nil
+}
+
+// allocatePort finds a free ephemeral port.
+func allocatePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port, nil
+}
+
+// isVRAMError scans stderr for CUDA/GPU out-of-memory indicators.
+func isVRAMError(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	for _, p := range internal.VRAM_ERROR_PATTERNS {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }

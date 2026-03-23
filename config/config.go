@@ -66,6 +66,23 @@ type SearchConfig struct {
 	MaxResults int    `yaml:"max_results"`
 }
 
+// ResolveBinary returns the llama-server binary path for the given split mode.
+// "graph" uses IKBinaryPath, all other modes use VanillaBinaryPath.
+// Returns "llama-server" (PATH lookup) if the resolved field is empty.
+func (l LlamaServerConfig) ResolveBinary(splitMode string) string {
+	var binary string
+	switch splitMode {
+	case "graph":
+		binary = l.IKBinaryPath
+	default:
+		binary = l.VanillaBinaryPath
+	}
+	if binary == "" {
+		binary = "llama-server"
+	}
+	return binary
+}
+
 // WriteDefault writes a default config file to the standard config path.
 // Returns an error if the file already exists.
 func WriteDefault() (string, error) {

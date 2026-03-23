@@ -3,7 +3,6 @@ package protocol
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
@@ -233,26 +232,17 @@ func TestMarshalUnmarshalResponse_OK(t *testing.T) {
 }
 
 func TestMarshalUnmarshalResponse_Status(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
 	resp := StatusResponse(&StatusPayload{
 		Running:     true,
 		ModelLoaded: true,
 		ModelPath:   "/model.gguf",
 		PID:         12345,
-		Model: &ModelStatus{
+		Model: &ModelInfo{
+			Name:      "test",
 			ModelPath: "/model.gguf",
-			GPULayers: 80,
-			GPUs: []GPUInfo{
+			GPUs:      []int{0},
+			GPUInfo: []GPUInfo{
 				{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
-			},
-		},
-		Models: []SlotInfo{
-			{
-				Name:      "test",
-				ModelPath: "/model.gguf",
-				GPUs:      []int{0},
-				Timeout:   "30m0s",
-				LastUsed:  now,
 			},
 		},
 	})
@@ -285,20 +275,11 @@ func TestMarshalUnmarshalResponse_Status(t *testing.T) {
 	if got.Status.Model == nil {
 		t.Fatal("Model is nil")
 	}
-	if got.Status.Model.GPULayers != 80 {
-		t.Errorf("GPULayers = %d, want 80", got.Status.Model.GPULayers)
+	if got.Status.Model.Name != "test" {
+		t.Errorf("Model.Name = %q, want test", got.Status.Model.Name)
 	}
-	if len(got.Status.Model.GPUs) != 1 {
-		t.Fatalf("GPUs len = %d, want 1", len(got.Status.Model.GPUs))
-	}
-	if len(got.Status.Models) != 1 {
-		t.Fatalf("Models len = %d, want 1", len(got.Status.Models))
-	}
-	if got.Status.Models[0].Name != "test" {
-		t.Errorf("Models[0].Name = %q, want test", got.Status.Models[0].Name)
-	}
-	if got.Status.Models[0].Timeout != "30m0s" {
-		t.Errorf("Models[0].Timeout = %q, want 30m0s", got.Status.Models[0].Timeout)
+	if len(got.Status.Model.GPUInfo) != 1 {
+		t.Fatalf("GPUInfo len = %d, want 1", len(got.Status.Model.GPUInfo))
 	}
 }
 

@@ -5,6 +5,19 @@ const (
 	BUFFER_PAGE_SIZE = 64 * 1024       // 64KB
 )
 
+var VRAM_ERROR_PATTERNS = []string{
+	"cudamalloc failed",
+	"out of memory",
+	"failed to allocate",
+	"unable to allocate",
+}
+
+var CONTEXT_LENGTH_ERROR_PATTERNS = []string{
+	"context length exceeded",
+	"too many tokens",
+	"maximum context length",
+}
+
 var (
 	LogFileName string = "daemon.log"
 )

@@ -183,7 +183,6 @@ func TestRunUnload_WithName(t *testing.T) {
 }
 
 func TestRunStatus_WithModel(t *testing.T) {
-	now := time.Now()
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
@@ -192,18 +191,12 @@ func TestRunStatus_WithModel(t *testing.T) {
 			ModelLoaded: true,
 			ModelPath:   "/model.gguf",
 			PID:         12345,
-			Model: &protocol.ModelStatus{
-				GPULayers: 80,
-				GPUs: []protocol.GPUInfo{
+			Model: &protocol.ModelInfo{
+				Name:      "test",
+				ModelPath: "/model.gguf",
+				GPUs:      []int{0},
+				GPUInfo: []protocol.GPUInfo{
 					{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
-				},
-			},
-			Models: []protocol.SlotInfo{
-				{
-					Name:      "test",
-					ModelPath: "/model.gguf",
-					GPUs:      []int{0},
-					LastUsed:  now,
 				},
 			},
 		}))
@@ -495,19 +488,20 @@ func TestRunLoad_NoArgs(t *testing.T) {
 	}
 }
 
-func TestRunStatus_OldFormat(t *testing.T) {
+func TestRunStatus_ModelOnly(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
-		// Old single-model format (no Models slice)
 		writeJSON(conn, protocol.StatusResponse(&protocol.StatusPayload{
 			Running:     true,
 			ModelLoaded: true,
 			ModelPath:   "/model.gguf",
 			PID:         12345,
-			Model: &protocol.ModelStatus{
-				GPULayers: 80,
-				GPUs: []protocol.GPUInfo{
+			Model: &protocol.ModelInfo{
+				Name:      "test",
+				ModelPath: "/model.gguf",
+				GPUs:      []int{0},
+				GPUInfo: []protocol.GPUInfo{
 					{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
 				},
 			},
@@ -520,31 +514,21 @@ func TestRunStatus_OldFormat(t *testing.T) {
 	}
 }
 
-func TestRunStatus_MultiModel(t *testing.T) {
-	now := time.Now()
+func TestRunStatus_WithModelInfo(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
 		scanReq(conn)
 		writeJSON(conn, protocol.StatusResponse(&protocol.StatusPayload{
 			Running:     true,
 			ModelLoaded: true,
+			ModelPath:   "/m1.gguf",
 			PID:         12345,
-			Models: []protocol.SlotInfo{
-				{
-					Name:      "m1",
-					ModelPath: "/m1.gguf",
-					GPUs:      []int{0},
-					Timeout:   "30m0s",
-					LastUsed:  now,
-					GPUInfo: []protocol.GPUInfo{
-						{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
-					},
-				},
-				{
-					Name:      "m2",
-					ModelPath: "/m2.gguf",
-					GPUs:      []int{1},
-					LastUsed:  now,
+			Model: &protocol.ModelInfo{
+				Name:      "m1",
+				ModelPath: "/m1.gguf",
+				GPUs:      []int{0},
+				GPUInfo: []protocol.GPUInfo{
+					{DeviceID: 0, DeviceName: "RTX 4090", FreeMemoryMB: 20000, TotalMemoryMB: 24000},
 				},
 			},
 		}))
