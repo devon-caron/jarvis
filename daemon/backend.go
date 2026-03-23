@@ -197,8 +197,108 @@ func (b *Backend) ModelPath() string {
 	return "unimplemented"
 }
 
-func (b *Backend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error {
-	return nil
+func (b *Backend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string)) error {
+	b.mu.Lock()
+	port := b.port
+	loaded := b.loaded
+	b.mu.Unlock()
+
+	if !loaded {
+		return fmt.Errorf("no model loaded")
+	}
+
+	type chatMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+
+	apiMsgs := make([]chatMsg, len(msgs))
+	for i, msg := range msgs {
+		apiMsgs[i] = chatMsg{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+
+	body := map[string]interface{}{
+		"messages": apiMsgs,
+		"stream":   true,
+	}
+
+	if opts.MaxTokens > 0 {
+		body["max_tokens"] = opts.MaxTokens
+	}
+
+	if opts.Temperature > 0 {
+		body["temperature"] = opts.Temperature
+	}
+
+	if opts.TopP > 0 {
+		body["top_p"] = opts.TopP
+	}
+
+	if opts.TopK > 0 {
+		body["top_k"] = opts.TopK
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("chat request returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return parseSSE(resp.Body, onToken)
+}
+
+func parseSSE(r io.ReadCloser, onToken func(string)) error {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		if data == internal.OPENAI_COMPAT_SSE_DONE {
+			break
+		}
+
+		// Parse OpenAI-compatible SSE chunk
+		// here we are only expecting one 'choice' from the server so we only take the first one.
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			onToken(chunk.Choices[0].Delta.Content)
+		}
+	}
+
+	return scanner.Err()
 }
 
 func (b *Backend) GetStatus() (*protocol.ModelStatus, error) {
