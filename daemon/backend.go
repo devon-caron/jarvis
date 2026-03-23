@@ -195,7 +195,7 @@ func (b *Backend) IsLoaded() bool {
 }
 
 func (b *Backend) ModelPath() string {
-	return "unimplemented"
+	return b.path
 }
 
 func (b *Backend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string)) error {
