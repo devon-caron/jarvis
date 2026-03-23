@@ -41,30 +41,6 @@ func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
 	}
 }
 
-func TestMarshalUnmarshalRequest_ChatWithModel(t *testing.T) {
-	req := &Request{
-		Type: ReqChat,
-		Chat: &ChatRequest{
-			Messages: []ChatMessage{{Role: "user", Content: "hello"}},
-			Model:    "llama70b",
-		},
-	}
-
-	data, err := MarshalRequest(req)
-	if err != nil {
-		t.Fatalf("MarshalRequest: %v", err)
-	}
-
-	got, err := UnmarshalRequest(data)
-	if err != nil {
-		t.Fatalf("UnmarshalRequest: %v", err)
-	}
-
-	if got.Chat.Model != "llama70b" {
-		t.Errorf("Model = %q, want llama70b", got.Chat.Model)
-	}
-}
-
 func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 	req := &Request{
 		Type: ReqLoad,

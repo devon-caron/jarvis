@@ -244,8 +244,8 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		return
 	}
 
-	log.Printf("chat request received: model=%s, messages=%d, web_search=%v, system_prompt=%v, opts=%+v, shell_pid=%d, clear_context=%v",
-		req.Model, len(req.Messages), req.WebSearch, req.SystemPrompt != "", req.Opts, req.ShellPID, req.ClearContext)
+	log.Printf("chat request received: messages=%d, web_search=%v, system_prompt=%v, opts=%+v, shell_pid=%d, clear_context=%v",
+		len(req.Messages), req.WebSearch, req.SystemPrompt != "", req.Opts, req.ShellPID, req.ClearContext)
 
 	msgs := req.Messages
 
@@ -318,14 +318,7 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		opts.TopK = h.Config.Inference.TopK
 	}
 
-	// Resolve GPU pointer to int (-1 = not specified).
-	gpu := -1
-	if req.GPU != nil {
-		gpu = *req.GPU
-	}
-
-	// Route to model by name, GPU, or auto-route.
-	err := h.Registry.Chat(ctx, req.Model, gpu, msgs, opts, func(token string) {
+	err := h.Registry.Chat(ctx, msgs, opts, func(token string) {
 		log.Printf("chat function received token %v", token)
 		rw.Write(protocol.DeltaTokenResponse(token))
 	}, req.ShellPID, req.ClearContext)

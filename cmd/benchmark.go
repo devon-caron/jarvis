@@ -182,9 +182,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 				BatchMode:    true,
 				SystemPrompt: bmSystemPrompt,
 				MaxTokens:    bmMaxTokens,
-				Temperature:  bmTemperature,
-				ModelFlag:    bmModelFlag,
-				GPUFlag:      bmGpuFlag,
 				StatsFlag:    true,
 			}, true)
 			if err != nil {

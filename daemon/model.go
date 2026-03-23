@@ -32,7 +32,7 @@ func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelB
 	}
 }
 
-func (r *ModelRegistry) Chat(ctx context.Context, name string, gpu int, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
+func (r *ModelRegistry) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

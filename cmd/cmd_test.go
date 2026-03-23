@@ -329,25 +329,6 @@ func TestRunChat_WithFlags(t *testing.T) {
 	}
 }
 
-func TestRunChat_WithModelFlag(t *testing.T) {
-	setupMockDaemon(t, func(conn net.Conn) {
-		defer conn.Close()
-		req := scanReq(conn)
-		if req != nil && req.Chat != nil {
-			if req.Chat.Model != "llama70b" {
-				fmt.Fprintf(os.Stderr, "expected model=llama70b, got %q\n", req.Chat.Model)
-			}
-		}
-		writeJSON(conn, protocol.DeltaTokenResponse("test"))
-		writeJSON(conn, protocol.EndTokenResponse())
-	})
-
-	rootCmd.SetArgs([]string{"-m", "llama70b", "test prompt"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-}
-
 func TestRunChat_BatchMode(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -391,20 +372,6 @@ func TestRunChat_SystemPromptFlag(t *testing.T) {
 	})
 
 	rootCmd.SetArgs([]string{"--system", "Be terse", "test prompt"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-}
-
-func TestRunChat_TemperatureFlag(t *testing.T) {
-	setupMockDaemon(t, func(conn net.Conn) {
-		defer conn.Close()
-		scanReq(conn)
-		writeJSON(conn, protocol.DeltaTokenResponse("ok"))
-		writeJSON(conn, protocol.EndTokenResponse())
-	})
-
-	rootCmd.SetArgs([]string{"-t", "0.5", "test prompt"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

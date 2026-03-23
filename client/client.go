@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -81,9 +80,31 @@ func (c *Client) ReadResponse() (*protocol.Response, error) {
 	return protocol.UnmarshalResponse(c.scanner.Bytes())
 }
 
-func (c *Client) StreamChat(req *protocol.Request, onToken func(string)) error {
-	log.Printf("streaming chat request: %v", req)
-	return fmt.Errorf("unimplmented")
+func (c *Client) StreamChat(req *protocol.Request, onNewToken func(string)) error {
+	if err := c.Send(req); err != nil {
+		return err
+	}
+	for {
+		resp, err := c.ReadResponse()
+		if err != nil {
+			return fmt.Errorf("failed to read chat response: %v", err)
+		}
+		switch resp.Type {
+		case protocol.RespDelta:
+			if resp.Delta != nil {
+				onNewToken(resp.Delta.Content)
+			}
+		case protocol.RespDone:
+			return nil
+		case protocol.RespError:
+			if resp.Error != nil {
+				return fmt.Errorf("daemon error: %s", resp.Error.Message)
+			}
+			return fmt.Errorf("daemon error")
+		default:
+			return fmt.Errorf("unexpected response type: %s", resp.Type)
+		}
+	}
 }
 
 // SendAndReadStatus sends a request and reads a status response.
