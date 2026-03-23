@@ -6,6 +6,10 @@ import (
 	"testing"
 )
 
+// TestLoadFrom_ValidConfig writes a complete YAML config to a temp file and
+// verifies LoadFrom correctly parses all fields: default_model, default_timeout,
+// default_gpu, model entries (path, context_size, flash_attention), inference
+// settings (max_tokens, temperature), and search config (provider, max_results).
 func TestLoadFrom_ValidConfig(t *testing.T) {
 	// Create a temporary file with valid YAML config
 	validConfig := `
@@ -109,6 +113,9 @@ llama_server:
 	}
 }
 
+// TestLoadFrom_InvalidConfig writes YAML with an invalid type (string where
+// int is expected for context_size) and verifies LoadFrom returns an error
+// and a nil config.
 func TestLoadFrom_InvalidConfig(t *testing.T) {
 	// Create a temporary file with invalid YAML
 	invalidConfig := `
@@ -159,6 +166,9 @@ search:
 	}
 }
 
+// TestLoadFrom_NonExistentFile verifies that LoadFrom returns the default
+// config (with initialized Models map and "30m" default timeout) without
+// error when the config file doesn't exist.
 func TestLoadFrom_NonExistentFile(t *testing.T) {
 	// Test loading from a non-existent file
 	nonExistentPath := filepath.Join(os.TempDir(), "non_existent_config.yaml")

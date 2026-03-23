@@ -14,6 +14,8 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
+// TestNewServerBackend verifies NewServerBackend returns a non-nil ModelBackend
+// instance when given a default config.
 func TestNewServerBackend(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg)
@@ -22,6 +24,8 @@ func TestNewServerBackend(t *testing.T) {
 	}
 }
 
+// TestBackend_IsLoaded_Initially verifies a freshly created Backend reports
+// IsLoaded() as false before any model is loaded.
 func TestBackend_IsLoaded_Initially(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg).(*Backend)
@@ -30,6 +34,8 @@ func TestBackend_IsLoaded_Initially(t *testing.T) {
 	}
 }
 
+// TestBackend_ModelPath_Initially verifies a freshly created Backend returns
+// an empty ModelPath() before any model is loaded.
 func TestBackend_ModelPath_Initially(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg).(*Backend)
@@ -38,6 +44,8 @@ func TestBackend_ModelPath_Initially(t *testing.T) {
 	}
 }
 
+// TestBackend_UnloadModel_WhenNotLoaded verifies calling UnloadModel on a
+// backend with no loaded model is a graceful no-op (returns no error).
 func TestBackend_UnloadModel_WhenNotLoaded(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg).(*Backend)
@@ -46,6 +54,8 @@ func TestBackend_UnloadModel_WhenNotLoaded(t *testing.T) {
 	}
 }
 
+// TestBackend_LoadModel_BadPath verifies LoadModel returns a "model file not
+// found" error for a nonexistent file path and leaves the backend unloaded.
 func TestBackend_LoadModel_BadPath(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg).(*Backend)
@@ -61,6 +71,10 @@ func TestBackend_LoadModel_BadPath(t *testing.T) {
 	}
 }
 
+// TestIsVRAMError is a table-driven test verifying isVRAMError correctly
+// identifies CUDA/GPU out-of-memory patterns in stderr output (cudaMalloc,
+// out of memory, failed to allocate, unable to allocate) with case-insensitive
+// matching, and correctly rejects unrelated error messages.
 func TestIsVRAMError(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -105,6 +119,9 @@ func TestIsVRAMError(t *testing.T) {
 	}
 }
 
+// TestValidateGGUF is a table-driven test verifying validateGGUF accepts valid
+// GGUF v2/v3 headers and rejects files with bad magic bytes, unsupported
+// versions, files that are too small, and nonexistent paths.
 func TestValidateGGUF(t *testing.T) {
 	dir := t.TempDir()
 
@@ -167,6 +184,8 @@ func TestValidateGGUF(t *testing.T) {
 	})
 }
 
+// TestAllocatePort verifies allocatePort returns a positive ephemeral port
+// number without error.
 func TestAllocatePort(t *testing.T) {
 	port, err := allocatePort()
 	if err != nil {
@@ -177,6 +196,8 @@ func TestAllocatePort(t *testing.T) {
 	}
 }
 
+// TestParseSSE verifies parseSSE correctly parses an OpenAI-compatible SSE
+// stream, extracting content tokens from "data:" lines and stopping at "[DONE]".
 func TestParseSSE(t *testing.T) {
 	input := `data: {"choices":[{"delta":{"content":"Hello"}}]}
 data: {"choices":[{"delta":{"content":" world"}}]}
@@ -198,6 +219,8 @@ data: [DONE]
 	}
 }
 
+// TestParseSSE_EmptyContent verifies parseSSE skips SSE chunks with empty
+// content strings and only delivers non-empty tokens.
 func TestParseSSE_EmptyContent(t *testing.T) {
 	input := `data: {"choices":[{"delta":{"content":""}}]}
 data: {"choices":[{"delta":{"content":"hi"}}]}
@@ -215,6 +238,8 @@ data: [DONE]
 	}
 }
 
+// TestParseSSE_NonDataLines verifies parseSSE ignores non-data lines (comments,
+// event types, blank lines) and only extracts content from "data:" lines.
 func TestParseSSE_NonDataLines(t *testing.T) {
 	input := `: comment
 event: message
@@ -234,6 +259,8 @@ data: [DONE]
 	}
 }
 
+// TestRunChat_SSE is an integration test using httptest to verify Backend.RunChat
+// sends a request to /v1/chat/completions and streams back tokens from the SSE response.
 func TestRunChat_SSE(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -276,6 +303,8 @@ func TestRunChat_SSE(t *testing.T) {
 	}
 }
 
+// TestRunChat_HTTPError verifies Backend.RunChat returns an error containing
+// the HTTP status code when the server responds with 500 Internal Server Error.
 func TestRunChat_HTTPError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -305,6 +334,8 @@ func TestRunChat_HTTPError(t *testing.T) {
 	}
 }
 
+// TestRunChat_NotLoaded verifies Backend.RunChat returns an error when called
+// on a backend that has no model loaded.
 func TestRunChat_NotLoaded(t *testing.T) {
 	cfg := config.Defaults()
 	b := NewServerBackend(cfg).(*Backend)
@@ -315,6 +346,9 @@ func TestRunChat_NotLoaded(t *testing.T) {
 	}
 }
 
+// TestNormalizeSplitMode is a table-driven test verifying NormalizeSplitMode
+// normalizes split mode strings (layer/l, row/r, none, empty) to canonical
+// forms, handles case insensitivity and whitespace, and rejects invalid values.
 func TestNormalizeSplitMode(t *testing.T) {
 	tests := []struct {
 		input   string

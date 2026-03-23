@@ -33,6 +33,8 @@ func startMockDaemon(t *testing.T, handler func(net.Conn)) string {
 	return sockPath
 }
 
+// TestClient_ConnectTo verifies that ConnectTo can establish and close a
+// connection to a Unix socket daemon.
 func TestClient_ConnectTo(t *testing.T) {
 	sockPath := startMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()

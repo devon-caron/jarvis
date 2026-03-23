@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TestMarshalUnmarshalRequest_Chat verifies a ChatRequest with messages and
+// WebSearch flag survives a JSON marshal/unmarshal round-trip with all fields intact.
 func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
 	req := &Request{
 		Type: ReqChat,
@@ -41,6 +43,8 @@ func TestMarshalUnmarshalRequest_Chat(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalRequest_Load verifies a LoadRequest with model path,
+// name, GPUs, GPU layers, and timeout survives a marshal/unmarshal round-trip.
 func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 	req := &Request{
 		Type: ReqLoad,
@@ -83,6 +87,8 @@ func TestMarshalUnmarshalRequest_Load(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalRequest_Unload verifies an UnloadRequest with a model
+// name survives a marshal/unmarshal round-trip.
 func TestMarshalUnmarshalRequest_Unload(t *testing.T) {
 	req := &Request{
 		Type:   ReqUnload,
@@ -110,6 +116,8 @@ func TestMarshalUnmarshalRequest_Unload(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalRequest_Simple verifies payload-less request types
+// (status, stop) survive a marshal/unmarshal round-trip with their type preserved.
 func TestMarshalUnmarshalRequest_Simple(t *testing.T) {
 	for _, typ := range []string{ReqStatus, ReqStop} {
 		req := &Request{Type: typ}
@@ -127,6 +135,8 @@ func TestMarshalUnmarshalRequest_Simple(t *testing.T) {
 	}
 }
 
+// TestUnmarshalRequest_InvalidJSON verifies UnmarshalRequest returns an error
+// for malformed JSON input.
 func TestUnmarshalRequest_InvalidJSON(t *testing.T) {
 	_, err := UnmarshalRequest([]byte("not json"))
 	if err == nil {
@@ -134,6 +144,8 @@ func TestUnmarshalRequest_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestUnmarshalRequest_MissingType verifies UnmarshalRequest returns an error
+// when the JSON is valid but the required "type" field is absent.
 func TestUnmarshalRequest_MissingType(t *testing.T) {
 	_, err := UnmarshalRequest([]byte(`{"chat":{}}`))
 	if err == nil {
@@ -141,6 +153,8 @@ func TestUnmarshalRequest_MissingType(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalResponse_Delta verifies a delta token response with
+// content survives a marshal/unmarshal round-trip.
 func TestMarshalUnmarshalResponse_Delta(t *testing.T) {
 	resp := DeltaTokenResponse("Hello")
 	data, err := MarshalResponse(resp)
@@ -161,6 +175,8 @@ func TestMarshalUnmarshalResponse_Delta(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalResponse_Done verifies an end-of-stream (done) response
+// survives a marshal/unmarshal round-trip with the correct type.
 func TestMarshalUnmarshalResponse_Done(t *testing.T) {
 	resp := EndTokenResponse()
 	data, err := MarshalResponse(resp)
@@ -178,6 +194,8 @@ func TestMarshalUnmarshalResponse_Done(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalResponse_Error verifies an error response with a message
+// survives a marshal/unmarshal round-trip with the message preserved.
 func TestMarshalUnmarshalResponse_Error(t *testing.T) {
 	resp := ErrorResponse("something failed")
 	data, err := MarshalResponse(resp)
@@ -198,6 +216,8 @@ func TestMarshalUnmarshalResponse_Error(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalResponse_OK verifies an OK response survives a
+// marshal/unmarshal round-trip with the correct type.
 func TestMarshalUnmarshalResponse_OK(t *testing.T) {
 	resp := OKResponse()
 	data, _ := MarshalResponse(resp)
@@ -207,6 +227,9 @@ func TestMarshalUnmarshalResponse_OK(t *testing.T) {
 	}
 }
 
+// TestMarshalUnmarshalResponse_Status verifies a status response with full
+// payload (running, model_loaded, PID, ModelInfo with GPU info) survives a
+// marshal/unmarshal round-trip with all nested fields intact.
 func TestMarshalUnmarshalResponse_Status(t *testing.T) {
 	resp := StatusResponse(&StatusPayload{
 		Running:     true,
@@ -259,6 +282,8 @@ func TestMarshalUnmarshalResponse_Status(t *testing.T) {
 	}
 }
 
+// TestUnmarshalResponse_InvalidJSON verifies UnmarshalResponse returns an
+// error for malformed JSON input.
 func TestUnmarshalResponse_InvalidJSON(t *testing.T) {
 	_, err := UnmarshalResponse([]byte("{bad"))
 	if err == nil {
@@ -266,6 +291,8 @@ func TestUnmarshalResponse_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestUnmarshalResponse_MissingType verifies UnmarshalResponse returns an
+// error when the JSON is valid but the "type" field is missing.
 func TestUnmarshalResponse_MissingType(t *testing.T) {
 	_, err := UnmarshalResponse([]byte(`{"delta":{"content":"hi"}}`))
 	if err == nil {
@@ -273,6 +300,9 @@ func TestUnmarshalResponse_MissingType(t *testing.T) {
 	}
 }
 
+// TestRequestJSON_MatchesProtocol verifies the raw JSON wire format of a chat
+// request contains the expected top-level keys ("type" and "chat") to ensure
+// struct tags match the protocol spec.
 func TestRequestJSON_MatchesProtocol(t *testing.T) {
 	// Verify the wire format matches the protocol spec
 	req := &Request{
@@ -294,6 +324,9 @@ func TestRequestJSON_MatchesProtocol(t *testing.T) {
 	}
 }
 
+// TestResponseHelpers is a table-driven test verifying each response constructor
+// (DeltaTokenResponse, EndTokenResponse, ErrorResponse, OKResponse, StatusResponse)
+// sets the correct response type field.
 func TestResponseHelpers(t *testing.T) {
 	tests := []struct {
 		name     string

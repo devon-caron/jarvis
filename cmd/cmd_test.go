@@ -57,6 +57,8 @@ func scanReq(conn net.Conn) *protocol.Request {
 	return req
 }
 
+// TestRunChat verifies the chat command sends a prompt to the mock daemon and
+// successfully receives streamed delta tokens followed by a done response.
 func TestRunChat(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -71,6 +73,8 @@ func TestRunChat(t *testing.T) {
 	}
 }
 
+// TestRunStop verifies the stop command sends a stop request to the mock daemon
+// and completes without error when the daemon responds with OK.
 func TestRunStop(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -84,6 +88,8 @@ func TestRunStop(t *testing.T) {
 	}
 }
 
+// TestRunLoad verifies the load command sends a load request with the specified
+// model path to the mock daemon and completes without error.
 func TestRunLoad(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -97,6 +103,8 @@ func TestRunLoad(t *testing.T) {
 	}
 }
 
+// TestRunLoad_WithGPUs verifies the load command correctly parses the -g flag
+// and sends the GPU list (e.g., [0,1]) in the load request to the daemon.
 func TestRunLoad_WithGPUs(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -115,6 +123,8 @@ func TestRunLoad_WithGPUs(t *testing.T) {
 	}
 }
 
+// TestRunLoad_WithTimeout verifies the load command correctly parses the -t flag
+// and sends the timeout value (e.g., "30m") in the load request to the daemon.
 func TestRunLoad_WithTimeout(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -133,6 +143,8 @@ func TestRunLoad_WithTimeout(t *testing.T) {
 	}
 }
 
+// TestRunLoad_WithPath verifies the load command correctly parses the -p flag
+// and sends the inline model path in the load request to the daemon.
 func TestRunLoad_WithPath(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -151,6 +163,8 @@ func TestRunLoad_WithPath(t *testing.T) {
 	}
 }
 
+// TestRunUnload verifies the unload command sends an unload request to the
+// mock daemon and completes without error when the daemon responds with OK.
 func TestRunUnload(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -164,6 +178,8 @@ func TestRunUnload(t *testing.T) {
 	}
 }
 
+// TestRunUnload_WithName verifies the unload command passes the model name
+// argument in the unload request to the daemon.
 func TestRunUnload_WithName(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -182,6 +198,9 @@ func TestRunUnload_WithName(t *testing.T) {
 	}
 }
 
+// TestRunStatus_WithModel verifies the status command executes without error
+// when the daemon reports a loaded model with GPU info. NOTE: functionally
+// duplicate with TestRunStatus_ModelOnly and TestRunStatus_WithModelInfo.
 func TestRunStatus_WithModel(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -208,6 +227,8 @@ func TestRunStatus_WithModel(t *testing.T) {
 	}
 }
 
+// TestRunStatus_NoModel verifies the status command executes without error
+// when the daemon is running but no model is loaded.
 func TestRunStatus_NoModel(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -225,6 +246,8 @@ func TestRunStatus_NoModel(t *testing.T) {
 	}
 }
 
+// TestRunStart_AlreadyRunning verifies the start command returns an error when
+// a PID file exists with a still-running process (this test's own PID).
 func TestRunStart_AlreadyRunning(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -240,6 +263,8 @@ func TestRunStart_AlreadyRunning(t *testing.T) {
 	}
 }
 
+// TestRunChat_NoDaemon verifies the chat command returns an error when no
+// daemon is running (no socket to connect to).
 func TestRunChat_NoDaemon(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -251,6 +276,8 @@ func TestRunChat_NoDaemon(t *testing.T) {
 	}
 }
 
+// TestRunStop_NoDaemon verifies the stop command returns an error when no
+// daemon is running.
 func TestRunStop_NoDaemon(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -262,6 +289,8 @@ func TestRunStop_NoDaemon(t *testing.T) {
 	}
 }
 
+// TestRunLoad_NoDaemon verifies the load command returns an error when no
+// daemon is running.
 func TestRunLoad_NoDaemon(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -273,6 +302,8 @@ func TestRunLoad_NoDaemon(t *testing.T) {
 	}
 }
 
+// TestRunUnload_NoDaemon verifies the unload command returns an error when no
+// daemon is running.
 func TestRunUnload_NoDaemon(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -284,6 +315,8 @@ func TestRunUnload_NoDaemon(t *testing.T) {
 	}
 }
 
+// TestRunStatus_NoDaemon verifies the status command returns an error when no
+// daemon is running.
 func TestRunStatus_NoDaemon(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -295,6 +328,8 @@ func TestRunStatus_NoDaemon(t *testing.T) {
 	}
 }
 
+// TestRunLoad_Error verifies the load command propagates an error response
+// from the daemon (e.g., "model not found") back to the caller.
 func TestRunLoad_Error(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -309,6 +344,8 @@ func TestRunLoad_Error(t *testing.T) {
 	}
 }
 
+// TestRunChat_WithFlags verifies the chat command correctly parses the -n flag
+// and sends the max_tokens inference option in the chat request to the daemon.
 func TestRunChat_WithFlags(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -329,6 +366,8 @@ func TestRunChat_WithFlags(t *testing.T) {
 	}
 }
 
+// TestRunChat_BatchMode verifies the chat command works with the -b (batch mode)
+// flag, successfully receiving streamed tokens from the daemon.
 func TestRunChat_BatchMode(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -343,6 +382,8 @@ func TestRunChat_BatchMode(t *testing.T) {
 	}
 }
 
+// TestRunChat_WebSearchFlag verifies the chat command correctly parses the -w
+// flag and sends web_search=true in the chat request to the daemon.
 func TestRunChat_WebSearchFlag(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -360,6 +401,8 @@ func TestRunChat_WebSearchFlag(t *testing.T) {
 	}
 }
 
+// TestRunChat_SystemPromptFlag verifies the chat command correctly parses the
+// --system flag and sends the system prompt string in the chat request.
 func TestRunChat_SystemPromptFlag(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -377,6 +420,8 @@ func TestRunChat_SystemPromptFlag(t *testing.T) {
 	}
 }
 
+// TestRunRegister verifies the "models register" command writes a model entry
+// (name and path) to the config YAML file in XDG_CONFIG_HOME.
 func TestRunRegister(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -401,6 +446,8 @@ func TestRunRegister(t *testing.T) {
 	}
 }
 
+// TestRunUnregister verifies the "models unregister" command removes a
+// previously registered model entry from the config YAML file.
 func TestRunUnregister(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -422,6 +469,8 @@ func TestRunUnregister(t *testing.T) {
 	}
 }
 
+// TestRunUnregister_NotFound verifies the "models unregister" command returns
+// an error when the specified model name doesn't exist in the config.
 func TestRunUnregister_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -433,6 +482,8 @@ func TestRunUnregister_NotFound(t *testing.T) {
 	}
 }
 
+// TestRunRegister_BadPath verifies the "models register" command returns an
+// error when the specified model file path doesn't exist on disk.
 func TestRunRegister_BadPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -444,6 +495,8 @@ func TestRunRegister_BadPath(t *testing.T) {
 	}
 }
 
+// TestRunLoad_NoArgs verifies the load command returns an error when no model
+// name or path argument is provided.
 func TestRunLoad_NoArgs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -455,6 +508,9 @@ func TestRunLoad_NoArgs(t *testing.T) {
 	}
 }
 
+// TestRunStatus_ModelOnly verifies the status command executes without error
+// when the daemon reports a loaded model with GPU info. NOTE: functionally
+// duplicate with TestRunStatus_WithModel and TestRunStatus_WithModelInfo.
 func TestRunStatus_ModelOnly(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -481,6 +537,9 @@ func TestRunStatus_ModelOnly(t *testing.T) {
 	}
 }
 
+// TestRunStatus_WithModelInfo verifies the status command executes without
+// error when the daemon reports a loaded model with GPU info. NOTE: functionally
+// duplicate with TestRunStatus_WithModel and TestRunStatus_ModelOnly.
 func TestRunStatus_WithModelInfo(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -507,6 +566,8 @@ func TestRunStatus_WithModelInfo(t *testing.T) {
 	}
 }
 
+// TestRunModelsLs verifies the "models ls" command executes without error and
+// lists registered models from a config file containing two model entries.
 func TestRunModelsLs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -523,6 +584,8 @@ func TestRunModelsLs(t *testing.T) {
 	}
 }
 
+// TestRunModelsLs_Empty verifies the "models ls" command executes without error
+// when no config file exists (i.e., no models are registered).
 func TestRunModelsLs_Empty(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -533,6 +596,8 @@ func TestRunModelsLs_Empty(t *testing.T) {
 	}
 }
 
+// TestRootCmd_ClearContextFlag verifies the -C flag sets clear_context=true and
+// includes a non-zero shell_pid in the chat request sent to the daemon.
 func TestRootCmd_ClearContextFlag(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
@@ -555,6 +620,8 @@ func TestRootCmd_ClearContextFlag(t *testing.T) {
 	}
 }
 
+// TestRootCmd_ShellPID verifies that the chat command automatically includes a
+// non-zero shell_pid in the chat request for per-shell context tracking.
 func TestRootCmd_ShellPID(t *testing.T) {
 	setupMockDaemon(t, func(conn net.Conn) {
 		defer conn.Close()
