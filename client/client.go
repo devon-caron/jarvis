@@ -2,7 +2,6 @@ package client
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -11,87 +10,46 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
-// Client communicates with the jarvis daemon over a Unix socket.
 type Client struct {
 	conn    net.Conn
 	scanner *bufio.Scanner
 }
 
-// Connect establishes a connection to the daemon socket.
 func Connect() (*Client, error) {
 	return ConnectTo(internal.SocketPath())
 }
 
 // ConnectTo establishes a connection to the daemon at the given socket path.
+// This function only runs after the daemon socket is created via the 'jarvis start' command.
 func ConnectTo(socketPath string) (*Client, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to daemon (is it running?): %w", err)
+		return nil, fmt.Errorf("could not connect to daemon process (is it running?)")
 	}
+
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, internal.BUFFER_PAGE_SIZE), internal.BUFFER_SIZE)
 	return &Client{conn: conn, scanner: scanner}, nil
 }
 
-// Close closes the connection.
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Send sends a request to the daemon.
 func (c *Client) Send(req *protocol.Request) error {
-	data, err := json.Marshal(req)
+	data, err := protocol.MarshalRequest(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 	data = append(data, '\n')
+
 	_, err = c.conn.Write(data)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+	return nil
 }
 
-// ReadResponse reads a single NDJSON response line from the daemon.
-func (c *Client) ReadResponse() (*protocol.Response, error) {
-	if !c.scanner.Scan() {
-		if err := c.scanner.Err(); err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("connection closed")
-	}
-	return protocol.UnmarshalResponse(c.scanner.Bytes())
-}
-
-// StreamChat sends a chat request and calls onDelta for each streamed token.
-// Returns the final error message if the daemon reports one, or nil on success.
-func (c *Client) StreamChat(req *protocol.Request, onDelta func(string)) error {
-	if err := c.Send(req); err != nil {
-		return err
-	}
-	for {
-		resp, err := c.ReadResponse()
-		if err != nil {
-			return err
-		}
-		switch resp.Type {
-		case protocol.RespDelta:
-			if resp.Delta != nil {
-				onDelta(resp.Delta.Content)
-			}
-		case protocol.RespDone:
-			return nil
-		case protocol.RespError:
-			if resp.Error != nil {
-				return fmt.Errorf("%s", resp.Error.Message)
-			}
-			return fmt.Errorf("unknown error from daemon")
-		default:
-			return fmt.Errorf("unexpected response type: %s", resp.Type)
-		}
-	}
-}
-
-// SendAndWaitOK sends a request and waits for an OK or error response.
-// A 3-minute read deadline prevents the client from hanging indefinitely
-// if the daemon crashes or becomes unresponsive.
 func (c *Client) SendAndWaitOK(req *protocol.Request) error {
 	if err := c.Send(req); err != nil {
 		return err
@@ -100,15 +58,52 @@ func (c *Client) SendAndWaitOK(req *protocol.Request) error {
 	defer c.conn.SetReadDeadline(time.Time{})
 	resp, err := c.ReadResponse()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.Type == protocol.RespError && resp.Error != nil {
-		return fmt.Errorf("%s", resp.Error.Message)
+		return fmt.Errorf("daemon error: %s", resp.Error.Message)
 	}
 	if resp.Type != protocol.RespOK {
-		return fmt.Errorf("unexpected response: %s", resp.Type)
+		return fmt.Errorf("expected OK response, got %s", resp.Type)
 	}
 	return nil
+}
+
+func (c *Client) ReadResponse() (*protocol.Response, error) {
+	if !c.scanner.Scan() {
+		if c.scanner.Err() != nil {
+			return nil, fmt.Errorf("scanner error: %w", c.scanner.Err())
+		}
+		return nil, fmt.Errorf("connection closed")
+	}
+	return protocol.UnmarshalResponse(c.scanner.Bytes())
+}
+
+func (c *Client) StreamChat(req *protocol.Request, onNewToken func(string)) error {
+	if err := c.Send(req); err != nil {
+		return err
+	}
+	for {
+		resp, err := c.ReadResponse()
+		if err != nil {
+			return fmt.Errorf("failed to read chat response: %v", err)
+		}
+		switch resp.Type {
+		case protocol.RespDelta:
+			if resp.Delta != nil {
+				onNewToken(resp.Delta.Content)
+			}
+		case protocol.RespDone:
+			return nil
+		case protocol.RespError:
+			if resp.Error != nil {
+				return fmt.Errorf("daemon error: %s", resp.Error.Message)
+			}
+			return fmt.Errorf("daemon error")
+		default:
+			return fmt.Errorf("unexpected response type: %s", resp.Type)
+		}
+	}
 }
 
 // SendAndReadStatus sends a request and reads a status response.

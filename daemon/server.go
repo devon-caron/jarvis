@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
 )
 
@@ -29,7 +30,9 @@ func NewServer(socketPath string, handler *Handler) *Server {
 // Listen creates the Unix socket and starts listening.
 func (s *Server) Listen() error {
 	// Remove stale socket file if it exists
-	os.Remove(s.socketPath)
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove stale socket file: %w", err)
+	}
 
 	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
@@ -42,44 +45,35 @@ func (s *Server) Listen() error {
 	return nil
 }
 
-// Serve accepts connections in a loop until the listener is closed.
 func (s *Server) Serve() error {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			// Check if we were closed intentionally
+
+			// Check if listener was intentionally closed
 			select {
 			case <-s.handler.StopCh:
 				return nil
 			default:
 			}
+
 			// If not a clean shutdown, check if it's a closed listener
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
 				return nil
 			}
-			log.Printf("accept error: %v", err)
+
+			log.Println("Accept error: ", err)
 			continue
 		}
 		go s.handleConnection(conn)
 	}
 }
 
-// Close shuts down the listener and removes the socket file.
-func (s *Server) Close() error {
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	os.Remove(s.socketPath)
-	return nil
-}
-
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
-	// Allow up to 1MB messages
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
+	scanner.Buffer(make([]byte, 0, internal.BUFFER_PAGE_SIZE), internal.BUFFER_SIZE)
 	if !scanner.Scan() {
 		return
 	}
@@ -105,4 +99,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	rw := NewResponseWriter(conn)
 	s.handler.Handle(ctx, req, rw)
+}
+
+func (s *Server) Close() error {
+	if s.listener != nil {
+		if err := s.listener.Close(); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(s.socketPath); err != nil {
+		return err
+	}
+	return nil
 }

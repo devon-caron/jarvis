@@ -1,74 +1,204 @@
 # Jarvis
 
-A Go-based assistant powered by [llama-go](https://github.com/tcpipuk/llama-go) with CUDA GPU acceleration.
+A CLI tool and AI provider that puts control back into the hands of users.
 
-## Prerequisites
+While revolutionary projects like OpenClaw and its derivative products have given individuals modest control of the lightning-in-a-box power that AI brings, these projects have also proliferated user information, API keys, and also given AI agents the chance to go rogue on a moment's notice. Jarvis is the CLI tool and AI provider that puts control back into the hands of users while still allowing AI to fully tap into its capabilities.
 
-- linux (Tested on Ubuntu 22.04 Pop_OS!)
-- Go (with CGO support)
-- NVIDIA CUDA toolkit (specifically `libcublas` and `libcudart`)
-- [llama-go](https://github.com/tcpipuk/llama-go) built from source
+Jarvis runs a lightweight background daemon that keeps your model loaded in GPU memory, giving you instant, low-latency access to local LLMs directly from your terminal — no cloud, no API keys leaving your machine, no surprises.
 
-## Building
+---
 
-The repository includes a `buildscript.sh` template. Copy it to `build.sh` and edit the placeholder paths to match your system:
+## Features
 
-```bash
-cp buildscript.sh build.sh
-```
+- **Persistent daemon** — keeps your model loaded in VRAM so every prompt is fast
+- **((TODO)) Multi-turn conversations** — context is maintained per-shell session
+- **Streaming responses** — tokens appear as they're generated
+- **Web search augmentation** — enrich prompts with live search results with Brave (and others soon!)
+- **Model registry** — name and configure your models once, use them by alias
+- **Multi-GPU support** — layer-wise and row-wise tensor splitting
+- **Benchmarking** — built-in performance measurement (tokens/s, TTFT)
+- **Shell completions** — bash, zsh, fish, and PowerShell
 
-Open `build.sh` and update the following:
+---
 
-### 1. `LLAMA_LIB` — Path to llama-go shared libraries
+## Installation
 
-```bash
-LLAMA_LIB=/path/to/llama-go/build/bin
-```
+**Requirements:** Go 1.25.6+ and [llama-server](https://github.com/ggerganov/llama.cpp) on your PATH.
 
-Set this to the directory containing the `lib*.so` files produced by building llama-go. For example:
-
-```bash
-LLAMA_LIB=/home/youruser/Repos/llama-go/build/bin
-```
-
-### 2. CUDA library path in `CGO_LDFLAGS`
+((Mac users, use `brew install llama-server` for a quick installation of llama-server.))
 
 ```bash
-CGO_LDFLAGS="-lcublas -lcudart -L/path/to/cuda/lib64/ -Wl,-rpath,$ORIGIN"
+go install github.com/devon-caron/jarvis@latest
 ```
 
-Replace `/path/to/cuda/lib64/` with the location of your CUDA libraries. Common locations:
-
-- `/usr/local/cuda/lib64/` (default CUDA toolkit install)
-- `/usr/lib/x86_64-linux-gnu/` (some distro packages)
-
-### 3. Build
+Or build from source:
 
 ```bash
-chmod +x build.sh
-./build.sh
+git clone https://github.com/devon-caron/jarvis.git
+cd jarvis
+go build -o build/bin/jarvis .
 ```
 
-The compiled binary and required shared libraries will be placed in `build/bin/`.
+---
 
-### 4. Running tests
+## Quick Start
 
-Tests that link against llama-go require `LD_LIBRARY_PATH` to be set so the linker can find `libllama.so`:
+### 1. Initialize configuration
 
 ```bash
-LD_LIBRARY_PATH=/path/to/llama-go/build/bin go test ./...
+jarvis config init
 ```
 
-## Running
+This creates `~/.config/jarvis/config.yaml` with sensible defaults.
 
-After building, start Jarvis with:
+### 2. Register a model
 
 ```bash
-LD_LIBRARY_PATH=/path/to/llama-go/build/bin CUDA_VISIBLE_DEVICES=0,1 ./build/bin/jarvis start
+jarvis models register mymodel /path/to/model.gguf
 ```
 
-Adjust `LD_LIBRARY_PATH` to match your `LLAMA_LIB` path, and `CUDA_VISIBLE_DEVICES` to the GPUs you want to use.
+### 3. Start the daemon
+
+```bash
+jarvis start
+```
+
+### 4. Load a model
+
+```bash
+jarvis load mymodel
+```
+
+### 5. Chat
+
+```bash
+jarvis "What is the capital of France?"
+```
+
+---
+
+## Usage
+
+### Sending prompts
+
+```bash
+# Basic prompt
+jarvis "Explain quicksort"
+
+# With web search context
+jarvis -w "Latest news on Go 1.25"
+
+# Show performance stats
+jarvis -s "Write a haiku"
+
+# Batch mode (buffer full response, useful for shell substitution)
+jarvis -b "Give me a UUID"
+
+# Set max tokens
+jarvis -n 200 "Summarize this concept"
+
+# Override the system prompt
+jarvis --system "You are a pirate." "Tell me about ships"
+
+# Clear conversation history for this shell
+jarvis -C
+```
+
+### Daemon management
+
+```bash
+jarvis start          # Start the daemon
+jarvis start -d       # Start with debug logging
+jarvis stop           # Stop the daemon
+jarvis status         # Show daemon PID, loaded model, GPU info
+```
+
+### Model management
+
+```bash
+# Load by registered name
+jarvis load mymodel
+
+# Load by file path
+jarvis load -p /path/to/model.gguf
+
+# Load with options
+jarvis load mymodel -g 0,1 -c 16384 -f -t 30m
+
+# Unload the current model
+jarvis unload
+```
+
+### Model registry
+
+```bash
+# List registered models
+jarvis models ls
+
+# Register with defaults
+jarvis models register mymodel /path/to/model.gguf -c 8192 -f
+
+# Remove a model
+jarvis models unregister mymodel
+```
+
+### Shell completions
+
+```bash
+jarvis config completion --shell zsh >> ~/.zshrc
+jarvis config completion --shell bash >> ~/.bashrc
+```
+
+---
+
+## Configuration
+
+Config lives at `~/.config/jarvis/config.yaml`. Key sections:
+
+```yaml
+default_model: mymodel
+default_timeout: "30m"
+default_gpu: 0
+
+models:
+  mymodel:
+    path: /path/to/model.gguf
+    context_size: 8192
+    flash_attention: true
+
+inference:
+  context_size: 8192
+  max_tokens: 1024
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 40
+
+system_prompt: "You are a helpful AI assistant."
+
+search:
+  provider: brave
+  api_key: ""
+  max_results: 5
+```
+
+---
+
+## Architecture
+
+```
+┌──────────┐    Unix Socket    ┌──────────────┐    subprocess    ┌──────────────┐
+│  jarvis   │ ◄──────────────► │    daemon     │ ◄─────────────► │ llama-server │
+│  (CLI)    │     NDJSON       │  (persistent) │                 │  (inference) │
+└──────────┘                   └──────────────┘                  └──────────────┘
+```
+
+- **CLI** sends requests over a Unix socket
+- **Daemon** manages model lifecycle and routes inference
+- **llama-server** handles the actual model execution in VRAM
+- All communication stays local — nothing leaves your machine
+
+---
 
 ## License
 
-MIT
+See [LICENSE](LICENSE) for details.

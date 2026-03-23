@@ -1,114 +1,65 @@
 package daemon
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
-	"time"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/internal"
-	"github.com/devon-caron/jarvis/search"
 )
 
-// Run is the daemon entry point. It sets up the PID file, socket server,
-// signal handling, and auto-loads the default model if configured.
+// Creates PID, Log, etc. files and starts daemon process.
 func Run() error {
-	// Load config
+	// load config
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("error loading config: %v", err)
 	}
 
-	// Set up logging
-	logPath := internal.LogPath()
-	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
+	// initialize logger
+	if err := os.MkdirAll(internal.LogDir(), 0755); err != nil {
+		return fmt.Errorf("error creating log directories: %v", err)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	log.Println("Initialized log directory: ", internal.LogDir())
+
+	logFile, err := os.OpenFile(internal.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
+		return fmt.Errorf("error opening log file: %v", err)
 	}
-	defer logFile.Close()
+	log.Println("Initialized log file: ", internal.LogPath())
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Write PID file
+	// write PID file
 	pidPath := internal.PIDPath()
 	if err := WritePID(pidPath); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
+		return fmt.Errorf("error writing to PID path: %v", err)
 	}
+	log.Println("Initialized PID file: ", pidPath)
 	defer RemovePID(pidPath)
 
-	log.Printf("jarvis daemon starting (pid=%d)", os.Getpid())
+	log.Printf("jarvis daemon process starting (pid=%d)", os.Getpid())
 
-	// Create model registry with llama-server backend factory
-	registry := NewModelRegistry(cfg, NewLlamaServerBackend)
+	registry := NewModelRegistry(cfg, NewServerBackend)
 	defer registry.Shutdown()
-
-	// Set up search
-	var searcher search.Searcher
-	if apiKey := cfg.SearchAPIKey(); apiKey != "" {
-		searcher = search.NewBraveSearcher(apiKey, cfg.Search.MaxResults)
-	}
 
 	// Create handler and server
 	stopCh := make(chan struct{}, 1)
-	handler := NewHandler(registry, cfg, searcher, stopCh)
+	handler := NewHandler(registry, cfg, stopCh)
 	server := NewServer(internal.SocketPath(), handler)
+	log.Println("Server created: ", server)
 
 	if err := server.Listen(); err != nil {
 		return err
 	}
 	defer server.Close()
 
-	log.Printf("listening on %s", internal.SocketPath())
-
-	// Auto-load default model if configured
-	if cfg.DefaultModel != "" {
-		entry, ok := cfg.ResolveModel(cfg.DefaultModel)
-		if !ok {
-			log.Printf("warning: default model %q not found in registry", cfg.DefaultModel)
-		} else {
-			// When a split mode is set, leave gpus empty so all GPUs are visible.
-			var gpus []int
-			if entry.SplitMode == "" {
-				gpus = []int{cfg.DefaultGPU}
-			}
-			var timeout time.Duration
-			if cfg.DefaultTimeout != "" && cfg.DefaultTimeout != "0" {
-				timeout, _ = time.ParseDuration(cfg.DefaultTimeout)
-			}
-			contextSize := entry.ContextSize
-			if contextSize == 0 {
-				contextSize = cfg.Inference.ContextSize
-			}
-			batchSize := entry.BatchSize
-			if batchSize == 0 {
-				batchSize = cfg.ModelOptions.BatchSize
-			}
-			tensorSplit := entry.TensorSplit
-			if tensorSplit == "" {
-				tensorSplit = cfg.ModelOptions.TensorSplit
-			}
-			log.Printf("auto-loading default model: %s (context: %d, split_mode: %q)", entry.Path, contextSize, entry.SplitMode)
-			if err := registry.Load(context.Background(), cfg.DefaultModel, entry.Path, gpus, timeout, LoadOpts{
-				ContextSize:    contextSize,
-				SplitMode:      entry.SplitMode,
-				FlashAttention: entry.FlashAttention || cfg.ModelOptions.FlashAttention,
-				BatchSize:      batchSize,
-				TensorSplit:    tensorSplit,
-			}); err != nil {
-				log.Printf("warning: failed to auto-load model: %v", err)
-			} else {
-				log.Printf("default model loaded successfully")
-			}
-		}
-	}
+	log.Println("Server listening on: ", internal.SocketPath())
 
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
@@ -137,4 +88,61 @@ func Run() error {
 	registry.Shutdown()
 	log.Printf("daemon stopped")
 	return nil
+}
+
+func WritePID(path string) error {
+	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
+func RemovePID(path string) error {
+	return os.Remove(path)
+}
+
+// Returns the full string for shorthand splitmode flags
+func NormalizeSplitMode(mode string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "none":
+		return "", nil
+	case "l", "layer":
+		return "layer", nil
+	case "r", "row":
+		return "row", nil
+	default:
+		return "", fmt.Errorf("invalid split mode %q: must be l(ayer) or r(ow)", mode)
+	}
+}
+
+// checks running daemon status
+func IsRunning(pidPath string) bool {
+	pid, err := ReadPID(pidPath)
+	if err != nil {
+		return false
+	}
+
+	return doesProcessExist(pid)
+}
+
+// retrieves the daemon's PID
+func ReadPID(pidPath string) (int, error) {
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		return -1, fmt.Errorf("error reading pid file: %v", err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return -1, fmt.Errorf("pid file data error: %v", err)
+	}
+
+	return pid, nil
+}
+
+// helper that checks for daemon process existence
+func doesProcessExist(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
 }

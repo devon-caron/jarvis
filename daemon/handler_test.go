@@ -4,25 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/devon-caron/jarvis/config"
 	"github.com/devon-caron/jarvis/protocol"
-	"github.com/devon-caron/jarvis/search"
 )
-
-// mockSearcher implements search.Searcher for testing.
-type mockSearcher struct {
-	results []search.Result
-	err     error
-}
-
-func (m *mockSearcher) Search(ctx context.Context, query string) ([]search.Result, error) {
-	return m.results, m.err
-}
 
 // readResponses parses NDJSON responses from a buffer.
 func readResponses(t *testing.T, buf *bytes.Buffer) []*protocol.Response {
@@ -48,13 +36,15 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
 	stopCh := make(chan struct{}, 1)
-	h := NewHandler(registry, cfg, nil, stopCh)
+	h := NewHandler(registry, cfg, stopCh)
 	return h, backend
 }
 
+// TestHandler_Chat verifies the handler processes a chat request end-to-end:
+// sends a user message to a loaded model, receives streamed delta tokens, and
+// confirms the final response is "done" with the full content "Hello world!".
 func TestHandler_Chat(t *testing.T) {
-	h, backend := newTestHandler(t)
-	backend.LoadModel(context.Background(), "/model.gguf", []int{0}, LoadOpts{})
+	h, _ := newTestHandler(t)
 	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
@@ -67,20 +57,18 @@ func TestHandler_Chat(t *testing.T) {
 		},
 	}
 
-	h.Handle(context.Background(),req, rw)
+	h.Handle(context.Background(), req, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) < 2 {
 		t.Fatalf("expected at least 2 responses, got %d", len(responses))
 	}
 
-	// Should have delta responses followed by done
 	lastResp := responses[len(responses)-1]
 	if lastResp.Type != protocol.RespDone {
 		t.Errorf("last response type = %q, want done", lastResp.Type)
 	}
 
-	// Check deltas
 	var content string
 	for _, r := range responses {
 		if r.Type == protocol.RespDelta && r.Delta != nil {
@@ -92,6 +80,8 @@ func TestHandler_Chat(t *testing.T) {
 	}
 }
 
+// TestHandler_Chat_NoModel verifies the handler returns an error response
+// when a chat request is sent with no model loaded.
 func TestHandler_Chat_NoModel(t *testing.T) {
 	h, _ := newTestHandler(t)
 
@@ -105,7 +95,7 @@ func TestHandler_Chat_NoModel(t *testing.T) {
 		},
 	}
 
-	h.Handle(context.Background(),req, rw)
+	h.Handle(context.Background(), req, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 {
@@ -116,13 +106,15 @@ func TestHandler_Chat_NoModel(t *testing.T) {
 	}
 }
 
+// TestHandler_Chat_NilPayload verifies the handler returns an error response
+// when a chat request has a nil Chat payload.
 func TestHandler_Chat_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqChat}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqChat}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -130,20 +122,22 @@ func TestHandler_Chat_NilPayload(t *testing.T) {
 	}
 }
 
+// TestHandler_Chat_SystemPrompt verifies the handler successfully processes a
+// chat request when a system prompt is configured, completing with a "done" response.
 func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	backend := &mockBackend{}
 	cfg := config.Defaults()
 	cfg.SystemPrompt = "Be helpful"
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
+	h := NewHandler(registry, cfg, make(chan struct{}, 1))
 
 	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages: []protocol.ChatMessage{{Role: "user", Content: "hi"}},
@@ -157,144 +151,15 @@ func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	}
 }
 
-func TestHandler_Chat_WebSearch(t *testing.T) {
-	backend := &mockBackend{}
-	cfg := config.Defaults()
-	searcher := &mockSearcher{
-		results: []search.Result{
-			{Title: "Test", URL: "http://test.com", Description: "A test result"},
-		},
-	}
-	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	h.Handle(context.Background(),&protocol.Request{
-		Type: protocol.ReqChat,
-		Chat: &protocol.ChatRequest{
-			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
-			WebSearch: true,
-		},
-	}, rw)
-
-	responses := readResponses(t, &buf)
-	lastResp := responses[len(responses)-1]
-	if lastResp.Type != protocol.RespDone {
-		t.Errorf("expected done, got %q", lastResp.Type)
-	}
-}
-
-func TestHandler_Chat_WebSearch_ZeroResults(t *testing.T) {
-	backend := &mockBackend{}
-	cfg := config.Defaults()
-	searcher := &mockSearcher{results: []search.Result{}}
-	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	h.Handle(context.Background(),&protocol.Request{
-		Type: protocol.ReqChat,
-		Chat: &protocol.ChatRequest{
-			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
-			WebSearch: true,
-		},
-	}, rw)
-
-	responses := readResponses(t, &buf)
-	if len(responses) != 1 || responses[0].Type != protocol.RespError {
-		t.Error("expected error for zero search results")
-	}
-}
-
-func TestHandler_Chat_WebSearch_Error(t *testing.T) {
-	backend := &mockBackend{}
-	cfg := config.Defaults()
-	searcher := &mockSearcher{err: errors.New("search failed")}
-	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, searcher, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	h.Handle(context.Background(),&protocol.Request{
-		Type: protocol.ReqChat,
-		Chat: &protocol.ChatRequest{
-			Messages:  []protocol.ChatMessage{{Role: "user", Content: "search test"}},
-			WebSearch: true,
-		},
-	}, rw)
-
-	responses := readResponses(t, &buf)
-	// Should get an error response followed by chat continuing (error is non-fatal in this path)
-	hasError := false
-	for _, r := range responses {
-		if r.Type == protocol.RespError {
-			hasError = true
-		}
-	}
-	if !hasError {
-		t.Error("expected error response for search failure")
-	}
-}
-
-func TestHandler_Chat_WithModelName(t *testing.T) {
-	b1 := &mockBackend{}
-	b2 := &mockBackend{}
-	cfg := config.Defaults()
-	idx := 0
-	backends := []*mockBackend{b1, b2}
-	factory := func(c *config.Config) ModelBackend {
-		b := backends[idx]
-		idx++
-		return b
-	}
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	h.Handle(context.Background(),&protocol.Request{
-		Type: protocol.ReqChat,
-		Chat: &protocol.ChatRequest{
-			Messages: []protocol.ChatMessage{{Role: "user", Content: "hi"}},
-			Model:    "m2",
-		},
-	}, rw)
-
-	responses := readResponses(t, &buf)
-	lastResp := responses[len(responses)-1]
-	if lastResp.Type != protocol.RespDone {
-		t.Errorf("expected done, got %q", lastResp.Type)
-	}
-	if b2.chatCalls.Load() != 1 {
-		t.Errorf("m2 chat calls = %d, want 1", b2.chatCalls.Load())
-	}
-}
-
+// TestHandler_Load verifies the handler processes a load request with a model
+// path and name, returning an OK response.
 func TestHandler_Load(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test"},
 	}, rw)
@@ -305,13 +170,15 @@ func TestHandler_Load(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_NilPayload verifies the handler returns an error response
+// when a load request has a nil Load payload.
 func TestHandler_Load_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqLoad}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqLoad}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -319,8 +186,10 @@ func TestHandler_Load_NilPayload(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_AliasResolution verifies the handler resolves a model name
+// to its path via the config registry, loading alias "big" and confirming the
+// backend received the resolved path "/path/to/big.gguf".
 func TestHandler_Load_AliasResolution(t *testing.T) {
-	// Write a test config with the "big" model so the handler reload finds it.
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 	cfg := config.Defaults()
@@ -330,12 +199,12 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 	backend := &mockBackend{}
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
+	h := NewHandler(registry, cfg, make(chan struct{}, 1))
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{Name: "big"},
 	}, rw)
@@ -349,6 +218,8 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 	}
 }
 
+// TestHandler_Unload verifies the handler processes an unload request for a
+// loaded model by name, returning an OK response.
 func TestHandler_Unload(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
@@ -356,7 +227,7 @@ func TestHandler_Unload(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type:   protocol.ReqUnload,
 		Unload: &protocol.UnloadRequest{Name: "test"},
 	}, rw)
@@ -367,13 +238,35 @@ func TestHandler_Unload(t *testing.T) {
 	}
 }
 
+// TestHandler_Unload_NilPayload verifies the handler returns an error response
+// when an unload request has a nil Unload payload.
+func TestHandler_Unload_NilPayload(t *testing.T) {
+	h, _ := newTestHandler(t)
+	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+
+	var buf bytes.Buffer
+	rw := NewResponseWriter(&buf)
+
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqUnload}, rw)
+
+	responses := readResponses(t, &buf)
+	if len(responses) != 1 || responses[0].Type != protocol.RespError {
+		t.Error("expected error for nil unload payload")
+	}
+}
+
+// TestHandler_Unload_NoModel verifies the handler returns an error response
+// when an unload request is sent with no model loaded.
 func TestHandler_Unload_NoModel(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqUnload}, rw)
+	h.Handle(context.Background(), &protocol.Request{
+		Type:   protocol.ReqUnload,
+		Unload: &protocol.UnloadRequest{},
+	}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -381,6 +274,9 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 	}
 }
 
+// TestHandler_Status verifies the handler returns a status response with
+// Running=true, ModelLoaded=true, and the correct model name when a model
+// is loaded.
 func TestHandler_Status(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
@@ -388,7 +284,7 @@ func TestHandler_Status(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqStatus}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
@@ -402,21 +298,23 @@ func TestHandler_Status(t *testing.T) {
 	if !status.ModelLoaded {
 		t.Error("ModelLoaded should be true")
 	}
-	if len(status.Models) != 1 {
-		t.Fatalf("expected 1 model in status, got %d", len(status.Models))
+	if status.Model == nil {
+		t.Fatal("Model should not be nil")
 	}
-	if status.Models[0].Name != "test" {
-		t.Errorf("model name = %q, want test", status.Models[0].Name)
+	if status.Model.Name != "test" {
+		t.Errorf("model name = %q, want test", status.Model.Name)
 	}
 }
 
+// TestHandler_Status_NoModel verifies the handler returns a status response
+// with ModelLoaded=false and Model=nil when no model is loaded.
 func TestHandler_Status_NoModel(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqStatus}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
@@ -425,37 +323,42 @@ func TestHandler_Status_NoModel(t *testing.T) {
 	if responses[0].Status.ModelLoaded {
 		t.Error("ModelLoaded should be false")
 	}
+	if responses[0].Status.Model != nil {
+		t.Error("Model should be nil when no model loaded")
+	}
 }
 
+// TestHandler_Stop verifies the handler returns an OK response for a stop
+// request and sends a signal on the StopCh channel to trigger daemon shutdown.
 func TestHandler_Stop(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStop}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: protocol.ReqStop}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
 		t.Error("expected OK response for stop")
 	}
 
-	// StopCh should have a signal
 	select {
 	case <-h.StopCh:
-		// Good
 	default:
 		t.Error("StopCh should have a signal")
 	}
 }
 
+// TestHandler_UnknownType verifies the handler returns an error response when
+// the request type is unrecognized.
 func TestHandler_UnknownType(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{Type: "bogus"}, rw)
+	h.Handle(context.Background(), &protocol.Request{Type: "bogus"}, rw)
 
 	responses := readResponses(t, &buf)
 	if len(responses) != 1 || responses[0].Type != protocol.RespError {
@@ -463,13 +366,15 @@ func TestHandler_UnknownType(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_WithTimeout verifies the handler processes a load request
+// with a timeout parameter and the model is loaded afterward.
 func TestHandler_Load_WithTimeout(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", Timeout: "30m"},
 	}, rw)
@@ -479,23 +384,21 @@ func TestHandler_Load_WithTimeout(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	// Verify model is loaded with timeout
-	models := h.Registry.Status()
-	if len(models) != 1 {
-		t.Fatalf("expected 1 model, got %d", len(models))
-	}
-	if models[0].Timeout != "30m0s" {
-		t.Errorf("Timeout = %q, want 30m0s", models[0].Timeout)
+	model := h.Registry.Status()
+	if model == nil {
+		t.Fatal("expected model to be loaded")
 	}
 }
 
+// TestHandler_Load_InvalidTimeout verifies the handler returns an error
+// response when the load request contains an unparseable timeout value.
 func TestHandler_Load_InvalidTimeout(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", Timeout: "badvalue"},
 	}, rw)
@@ -506,18 +409,20 @@ func TestHandler_Load_InvalidTimeout(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_DefaultTimeout verifies the handler uses the config's
+// DefaultTimeout when no timeout is specified in the load request.
 func TestHandler_Load_DefaultTimeout(t *testing.T) {
 	backend := &mockBackend{}
 	cfg := config.Defaults()
 	cfg.DefaultTimeout = "15m"
 	factory := func(c *config.Config) ModelBackend { return backend }
 	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
+	h := NewHandler(registry, cfg, make(chan struct{}, 1))
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test"},
 	}, rw)
@@ -527,22 +432,21 @@ func TestHandler_Load_DefaultTimeout(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	models := registry.Status()
-	if len(models) != 1 {
-		t.Fatalf("expected 1 model, got %d", len(models))
-	}
-	if models[0].Timeout != "15m0s" {
-		t.Errorf("Timeout = %q, want 15m0s", models[0].Timeout)
+	model := registry.Status()
+	if model == nil {
+		t.Fatal("expected model to be loaded")
 	}
 }
 
+// TestHandler_Load_WithGPUs verifies the handler processes a load request
+// with explicit GPU assignments, returning an OK response.
 func TestHandler_Load_WithGPUs(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1, 2}},
 	}, rw)
@@ -553,14 +457,15 @@ func TestHandler_Load_WithGPUs(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_DefaultName verifies the handler defaults the model name
+// to the ModelPath when no Name is provided in the load request.
 func TestHandler_Load_DefaultName(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	// No Name field — should default to ModelPath
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf"},
 	}, rw)
@@ -570,111 +475,24 @@ func TestHandler_Load_DefaultName(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	models := h.Registry.Status()
-	if len(models) != 1 {
-		t.Fatalf("expected 1 model, got %d", len(models))
+	model := h.Registry.Status()
+	if model == nil {
+		t.Fatal("expected model to be loaded")
 	}
-	if models[0].Name != "/model.gguf" {
-		t.Errorf("Name = %q, want /model.gguf", models[0].Name)
-	}
-}
-
-func TestHandler_Unload_ByGPU(t *testing.T) {
-	b1 := &mockBackend{}
-	b2 := &mockBackend{}
-	cfg := config.Defaults()
-	idx := 0
-	backends := []*mockBackend{b1, b2}
-	factory := func(c *config.Config) ModelBackend {
-		b := backends[idx]
-		idx++
-		return b
-	}
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
-
-	gpu := 0
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-	h.Handle(context.Background(),&protocol.Request{
-		Type:   protocol.ReqUnload,
-		Unload: &protocol.UnloadRequest{GPU: &gpu},
-	}, rw)
-
-	responses := readResponses(t, &buf)
-	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
-		t.Errorf("expected OK, got %v", responses)
-	}
-
-	models := registry.Status()
-	if len(models) != 1 || models[0].Name != "m2" {
-		t.Errorf("expected only m2 remaining after unloading GPU 0, got %v", models)
+	if model.Name != "/model.gguf" {
+		t.Errorf("Name = %q, want /model.gguf", model.Name)
 	}
 }
 
-func TestHandler_Unload_NilPayload(t *testing.T) {
-	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	// nil unload payload — should still work with single model
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqUnload}, rw)
-
-	responses := readResponses(t, &buf)
-	if len(responses) != 1 || responses[0].Type != protocol.RespOK {
-		t.Errorf("expected OK, got %v", responses)
-	}
-}
-
-func TestHandler_Status_MultiModel(t *testing.T) {
-	b1 := &mockBackend{}
-	b2 := &mockBackend{}
-	cfg := config.Defaults()
-	idx := 0
-	backends := []*mockBackend{b1, b2}
-	factory := func(c *config.Config) ModelBackend {
-		b := backends[idx]
-		idx++
-		return b
-	}
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, nil, make(chan struct{}, 1))
-
-	registry.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{})
-	registry.Load(context.Background(), "m2", "/m2.gguf", []int{1}, 0, LoadOpts{})
-
-	var buf bytes.Buffer
-	rw := NewResponseWriter(&buf)
-
-	h.Handle(context.Background(),&protocol.Request{Type: protocol.ReqStatus}, rw)
-
-	responses := readResponses(t, &buf)
-	if len(responses) != 1 || responses[0].Type != protocol.RespStatus {
-		t.Fatalf("expected status response, got %v", responses)
-	}
-
-	status := responses[0].Status
-	if len(status.Models) != 2 {
-		t.Errorf("expected 2 models, got %d", len(status.Models))
-	}
-	// With multiple models, single-model compat fields should be empty
-	if status.ModelPath != "" {
-		t.Errorf("ModelPath should be empty for multi-model, got %q", status.ModelPath)
-	}
-}
-
+// TestHandler_Load_GPUAssignment_SingleGPU verifies the handler passes a
+// single GPU assignment through to the backend correctly.
 func TestHandler_Load_GPUAssignment_SingleGPU(t *testing.T) {
 	h, backend := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{1}},
 	}, rw)
@@ -689,13 +507,15 @@ func TestHandler_Load_GPUAssignment_SingleGPU(t *testing.T) {
 	}
 }
 
+// TestHandler_Load_GPUAssignment_MultiGPU verifies the handler passes
+// multiple GPU assignments through to the backend correctly.
 func TestHandler_Load_GPUAssignment_MultiGPU(t *testing.T) {
 	h, backend := newTestHandler(t)
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	h.Handle(context.Background(),&protocol.Request{
+	h.Handle(context.Background(), &protocol.Request{
 		Type: protocol.ReqLoad,
 		Load: &protocol.LoadRequest{ModelPath: "/model.gguf", Name: "test", GPUs: []int{0, 1}},
 	}, rw)
@@ -710,12 +530,15 @@ func TestHandler_Load_GPUAssignment_MultiGPU(t *testing.T) {
 	}
 }
 
+// TestResponseWriter verifies ResponseWriter serializes responses as NDJSON,
+// writing a delta and done response and confirming the output contains two
+// newline-delimited JSON lines with correct types.
 func TestResponseWriter(t *testing.T) {
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
 
-	rw.Write(protocol.DeltaResponse("hi"))
-	rw.Write(protocol.DoneResponse())
+	rw.Write(protocol.DeltaTokenResponse("hi"))
+	rw.Write(protocol.EndTokenResponse())
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 2 {
@@ -734,6 +557,9 @@ func TestResponseWriter(t *testing.T) {
 	}
 }
 
+// TestHandler_Chat_ClearContext verifies the handler successfully processes a
+// chat request with the ClearContext flag and ShellPID set, completing with
+// a "done" response.
 func TestHandler_Chat_ClearContext(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
@@ -757,6 +583,8 @@ func TestHandler_Chat_ClearContext(t *testing.T) {
 	}
 }
 
+// TestHandler_Chat_ShellPID verifies the handler successfully processes a
+// chat request with a ShellPID set, completing with a "done" response.
 func TestHandler_Chat_ShellPID(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})

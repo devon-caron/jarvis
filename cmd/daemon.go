@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/daemon"
 )
+
+var debugLogger *logrus.Logger
 
 // daemonCmd is the hidden subcommand invoked by "jarvis start" after forking.
 var daemonCmd = &cobra.Command{

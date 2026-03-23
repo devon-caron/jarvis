@@ -5,24 +5,6 @@ import (
 	"fmt"
 )
 
-// Request types sent from client to daemon.
-const (
-	ReqChat   = "chat"
-	ReqLoad   = "load"
-	ReqUnload = "unload"
-	ReqStatus = "status"
-	ReqStop   = "stop"
-)
-
-// Response types sent from daemon to client.
-const (
-	RespDelta  = "delta"
-	RespDone   = "done"
-	RespError  = "error"
-	RespStatus = "status"
-	RespOK     = "ok"
-)
-
 // Request is the envelope for all client-to-daemon messages.
 type Request struct {
 	Type   string         `json:"type"`
@@ -34,13 +16,11 @@ type Request struct {
 // ChatRequest holds the payload for a chat request.
 type ChatRequest struct {
 	Messages     []ChatMessage `json:"messages"`
-	Model        string        `json:"model,omitempty"`
-	GPU          *int          `json:"gpu,omitempty"` // nil = auto-route; set to route to specific GPU
-	WebSearch    bool          `json:"web_search,omitempty"`
-	SystemPrompt string        `json:"system_prompt,omitempty"`
-	Opts         InferenceOpts `json:"opts,omitempty"`
-	ShellPID     int           `json:"shell_pid,omitempty"`
-	ClearContext bool          `json:"clear_context,omitempty"`
+	WebSearch    bool          `json:"web_search"`
+	SystemPrompt string        `json:"system_prompt"`
+	Opts         InferenceOpts `json:"opts"`
+	ShellPID     int           `json:"shell_pid"`
+	ClearContext bool          `json:"clear_context"`
 }
 
 // LoadRequest holds the payload for a model load request.
@@ -66,10 +46,10 @@ type UnloadRequest struct {
 
 // Response is the envelope for all daemon-to-client messages.
 type Response struct {
-	Type   string          `json:"type"`
-	Delta  *DeltaPayload   `json:"delta,omitempty"`
-	Error  *ErrorPayload   `json:"error,omitempty"`
-	Status *StatusPayload  `json:"status,omitempty"`
+	Type   string         `json:"type"`
+	Delta  *DeltaPayload  `json:"delta,omitempty"`
+	Error  *ErrorPayload  `json:"error,omitempty"`
+	Status *StatusPayload `json:"status,omitempty"`
 }
 
 // DeltaPayload carries a single token/chunk of streamed text.
@@ -84,12 +64,11 @@ type ErrorPayload struct {
 
 // StatusPayload carries daemon and model status info.
 type StatusPayload struct {
-	Running     bool         `json:"running"`
-	ModelLoaded bool         `json:"model_loaded"`
-	ModelPath   string       `json:"model_path,omitempty"`
-	PID         int          `json:"pid"`
-	Model       *ModelStatus `json:"model,omitempty"`
-	Models      []SlotInfo   `json:"models,omitempty"`
+	Running     bool       `json:"running"`
+	ModelLoaded bool       `json:"model_loaded"`
+	ModelPath   string     `json:"model_path,omitempty"`
+	PID         int        `json:"pid"`
+	Model       *ModelInfo `json:"model,omitempty"`
 }
 
 // MarshalRequest serializes a request to JSON bytes (no trailing newline).
@@ -128,11 +107,11 @@ func UnmarshalResponse(data []byte) (*Response, error) {
 
 // Helper constructors for common responses.
 
-func DeltaResponse(content string) *Response {
+func DeltaTokenResponse(content string) *Response {
 	return &Response{Type: RespDelta, Delta: &DeltaPayload{Content: content}}
 }
 
-func DoneResponse() *Response {
+func EndTokenResponse() *Response {
 	return &Response{Type: RespDone}
 }
 

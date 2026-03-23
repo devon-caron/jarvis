@@ -26,9 +26,6 @@ var (
 	clearContext bool
 	systemPrompt string
 	maxTokens    int
-	temperature  float64
-	modelFlag    string
-	gpuFlag      int
 	statsFlag    bool
 )
 
@@ -38,9 +35,6 @@ type Flags struct {
 	ClearContext bool
 	SystemPrompt string
 	MaxTokens    int
-	Temperature  float64
-	ModelFlag    string
-	GPUFlag      int
 	StatsFlag    bool
 }
 
@@ -58,9 +52,6 @@ func init() {
 	rootCmd.Flags().BoolVarP(&batchMode, "batch", "b", false, "Buffer full response before printing (for use in $())")
 	rootCmd.Flags().StringVar(&systemPrompt, "system", "", "Override system prompt")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "n", 0, "Max tokens to generate (0 = config default)")
-	rootCmd.Flags().Float64VarP(&temperature, "temperature", "t", 0, "Temperature (0 = config default)")
-	rootCmd.Flags().StringVarP(&modelFlag, "model", "m", "", "Target model name (when multiple models loaded)")
-	rootCmd.Flags().IntVarP(&gpuFlag, "gpu", "g", -1, "Route to whichever model is loaded on this GPU")
 	rootCmd.Flags().BoolVarP(&statsFlag, "stats", "s", false, "Show tokens per second along with other statistics")
 	rootCmd.Flags().BoolVarP(&clearContext, "clear-context", "C", false, "Clear conversation history for this shell before chatting")
 }
@@ -81,18 +72,12 @@ func runChat(cmd *cobra.Command, args []string) error {
 		ClearContext: clearContext,
 		SystemPrompt: systemPrompt,
 		MaxTokens:    maxTokens,
-		Temperature:  temperature,
-		ModelFlag:    modelFlag,
-		GPUFlag:      gpuFlag,
 		StatsFlag:    statsFlag,
 	}, false)
 	return err
 }
 
 func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, error) {
-
-	// cfg, _ := config.Load()
-
 	c, err := client.Connect()
 	if err != nil {
 		return "", nil, fmt.Errorf("cannot connect to daemon. Is it running? Start with: jarvis start")
@@ -103,15 +88,6 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 	if flags.MaxTokens > 0 {
 		opts.MaxTokens = flags.MaxTokens
 	}
-	if flags.Temperature > 0 {
-		opts.Temperature = flags.Temperature
-	}
-
-	var gpuPtr *int
-	if flags.GPUFlag >= 0 {
-		g := flags.GPUFlag
-		gpuPtr = &g
-	}
 
 	req := &protocol.Request{
 		Type: protocol.ReqChat,
@@ -119,8 +95,6 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 			Messages: []protocol.ChatMessage{
 				{Role: "user", Content: prompt},
 			},
-			Model:        flags.ModelFlag,
-			GPU:          gpuPtr,
 			WebSearch:    flags.WebSearch,
 			SystemPrompt: flags.SystemPrompt,
 			Opts:         opts,
@@ -128,8 +102,6 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 			ClearContext: flags.ClearContext,
 		},
 	}
-
-	// _ = cfg // config loaded for potential future use
 
 	genResponse := ""
 	tokenCount := 0

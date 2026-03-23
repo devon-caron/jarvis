@@ -4,10 +4,27 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/devon-caron/jarvis/internal"
+	"gopkg.in/yaml.v3"
 )
+
+// Config holds all jarvis configuration.
+type Config struct {
+	DefaultModel   string                `yaml:"default_model"`
+	DefaultTimeout string                `yaml:"default_timeout"`
+	DefaultGPU     int                   `yaml:"default_gpu"`
+	Models         map[string]ModelEntry `yaml:"models"`
+	ModelOptions   ModelOptions          `yaml:"model_options"`
+	Inference      InferenceConfig       `yaml:"inference"`
+	SystemPrompt   string                `yaml:"system_prompt"`
+	Search         SearchConfig          `yaml:"search"`
+	LlamaServer    LlamaServerConfig     `yaml:"llama_server"`
+}
+
+// LlamaServerConfig configures the llama-server binary.
+type LlamaServerConfig struct {
+	BinaryPath string `yaml:"binary_path"`
+}
 
 // ModelEntry stores a registered model's path and settings.
 type ModelEntry struct {
@@ -17,45 +34,6 @@ type ModelEntry struct {
 	FlashAttention bool   `yaml:"flash_attention,omitempty"` // enable flash attention
 	BatchSize      int    `yaml:"batch_size,omitempty"`      // micro-batch size (0 = server default)
 	TensorSplit    string `yaml:"tensor_split,omitempty"`    // GPU weight distribution (e.g. "1,1")
-}
-
-// LlamaServerConfig configures the llama-server binaries.
-// IKBinaryPath is used for graph split mode (ik_llama.cpp with NCCL support).
-// VanillaBinaryPath is used for layer/row split modes and as the default when
-// no split mode is specified.
-type LlamaServerConfig struct {
-	IKBinaryPath      string `yaml:"ik_binary_path"`
-	VanillaBinaryPath string `yaml:"vanilla_binary_path"`
-}
-
-// ResolveBinary returns the llama-server binary path for the given split mode.
-// "graph" uses IKBinaryPath, all other modes use VanillaBinaryPath.
-// Returns "llama-server" (PATH lookup) if the resolved field is empty.
-func (l LlamaServerConfig) ResolveBinary(splitMode string) string {
-	var binary string
-	switch splitMode {
-	case "graph":
-		binary = l.IKBinaryPath
-	default:
-		binary = l.VanillaBinaryPath
-	}
-	if binary == "" {
-		binary = "llama-server"
-	}
-	return binary
-}
-
-// Config holds all jarvis configuration.
-type Config struct {
-	DefaultModel   string                  `yaml:"default_model"`
-	DefaultTimeout string                  `yaml:"default_timeout"`
-	DefaultGPU     int                     `yaml:"default_gpu"`
-	Models         map[string]ModelEntry   `yaml:"models"`
-	ModelOptions   ModelOptions            `yaml:"model_options"`
-	Inference      InferenceConfig         `yaml:"inference"`
-	SystemPrompt   string                  `yaml:"system_prompt"`
-	Search         SearchConfig            `yaml:"search"`
-	LlamaServer    LlamaServerConfig       `yaml:"llama_server"`
 }
 
 // ModelOptions configures how models are loaded.
@@ -84,6 +62,39 @@ type SearchConfig struct {
 	MaxResults int    `yaml:"max_results"`
 }
 
+// Binary returns the configured llama-server binary path.
+// Returns "llama-server" (PATH lookup) if BinaryPath is empty.
+func (l LlamaServerConfig) Binary() string {
+	if l.BinaryPath == "" {
+		return "llama-server"
+	}
+	return l.BinaryPath
+}
+
+// WriteDefault writes a default config file to the standard config path.
+// Returns an error if the file already exists.
+func WriteDefault() (string, error) {
+	path := internal.ConfigPath()
+	if _, err := os.Stat(path); err == nil {
+		return path, os.ErrExist
+	}
+
+	if err := os.MkdirAll(internal.ConfigDir(), 0755); err != nil {
+		return "", err
+	}
+
+	cfg := Defaults()
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	return &Config{
@@ -105,15 +116,10 @@ func Defaults() *Config {
 			Provider:   "brave",
 			MaxResults: 5,
 		},
-		LlamaServer: LlamaServerConfig{
-			IKBinaryPath:      "",
-			VanillaBinaryPath: "",
-		},
+		LlamaServer: LlamaServerConfig{},
 	}
 }
 
-// Load reads the config file from the default path.
-// If the file doesn't exist, returns defaults.
 func Load() (*Config, error) {
 	return LoadFrom(internal.ConfigPath())
 }
@@ -143,46 +149,6 @@ func LoadFrom(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// WriteDefault writes a default config file to the standard config path.
-// Returns an error if the file already exists.
-func WriteDefault() (string, error) {
-	path := internal.ConfigPath()
-	if _, err := os.Stat(path); err == nil {
-		return path, os.ErrExist
-	}
-
-	if err := os.MkdirAll(internal.ConfigDir(), 0755); err != nil {
-		return "", err
-	}
-
-	cfg := Defaults()
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return "", err
-	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-// ResolveModel resolves a model name to its registry entry.
-// Returns the entry and true if found, or a zero entry and false if not.
-func (c *Config) ResolveModel(name string) (ModelEntry, bool) {
-	entry, ok := c.Models[name]
-	return entry, ok
-}
-
-// SearchAPIKey returns the search API key, checking the env var as fallback.
-func (c *Config) SearchAPIKey() string {
-	if c.Search.APIKey != "" {
-		return c.Search.APIKey
-	}
-	return os.Getenv("BRAVE_API_KEY")
-}
-
-// Save writes the config to the given path as YAML.
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {

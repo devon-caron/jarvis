@@ -1,6 +1,23 @@
 package protocol
 
-import "time"
+
+// Request types sent from client to daemon.
+const (
+	ReqChat   = "chat"
+	ReqLoad   = "load"
+	ReqUnload = "unload"
+	ReqStatus = "status"
+	ReqStop   = "stop"
+)
+
+// Response types sent from daemon to client.
+const (
+	RespDelta  = "delta"
+	RespDone   = "done"
+	RespError  = "error"
+	RespStatus = "status"
+	RespOK     = "ok"
+)
 
 // ChatMessage represents a single message in a conversation.
 type ChatMessage struct {
@@ -31,12 +48,10 @@ type GPUInfo struct {
 	TotalMemoryMB int    `json:"total_memory_mb"`
 }
 
-// SlotInfo describes a loaded model slot for multi-model status reporting.
-type SlotInfo struct {
+// ModelInfo describes a loaded model.
+type ModelInfo struct {
 	Name      string    `json:"name"`
 	ModelPath string    `json:"model_path"`
 	GPUs      []int     `json:"gpus"`
-	Timeout   string    `json:"timeout,omitempty"`
-	LastUsed  time.Time `json:"last_used"`
 	GPUInfo   []GPUInfo `json:"gpu_info,omitempty"`
 }
