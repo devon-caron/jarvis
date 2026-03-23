@@ -236,6 +236,7 @@ func (h *Handler) handleUnload(req *protocol.UnloadRequest, rw *ResponseWriter) 
 	}
 
 	log.Println("unload request processed")
+	rw.Write(protocol.OKResponse())
 }
 
 func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw *ResponseWriter) {
