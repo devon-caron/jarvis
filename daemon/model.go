@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -104,12 +103,6 @@ func (r *ModelRegistry) Status() *protocol.ModelInfo {
 		Name:      r.name,
 		ModelPath: r.backend.ModelPath(),
 		GPUs:      r.gpus,
-	}
-
-	if status, err := r.backend.GetStatus(); err == nil && status != nil {
-		info.GPUInfo = status.GPUs
-	} else if err != nil {
-		log.Printf("failed to get backend status for model %s: %v", r.name, err)
 	}
 
 	return info

@@ -62,8 +62,6 @@ type ModelBackend interface {
 	ModelPath() string
 	// RunChat streams a chat response, calling onDelta for each token.
 	RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onDelta func(string)) error
-	// GetStatus returns model and GPU status info.
-	GetStatus() (*protocol.ModelStatus, error)
 }
 
 func NewServerBackend(config *config.Config) ModelBackend {
@@ -291,7 +289,7 @@ func (b *Backend) RunChat(ctx context.Context, msgs []protocol.ChatMessage, opts
 	return parseSSE(resp.Body, onToken)
 }
 
-func parseSSE(r io.ReadCloser, onToken func(string)) error {
+func parseSSE(r io.Reader, onToken func(string)) error {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -323,10 +321,6 @@ func parseSSE(r io.ReadCloser, onToken func(string)) error {
 	}
 
 	return scanner.Err()
-}
-
-func (b *Backend) GetStatus() (*protocol.ModelStatus, error) {
-	return nil, fmt.Errorf("unimplemented")
 }
 
 func (b *Backend) waitForHealth(ctx context.Context, url string, exitCh <-chan error, stderrBuf *bytes.Buffer) error {
