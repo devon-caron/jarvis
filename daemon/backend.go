@@ -95,17 +95,11 @@ func (b *Backend) LoadModel(ctx context.Context, modelPath string, gpus []int, o
 		return fmt.Errorf("invalid split mode: %w", err)
 	}
 
-	binary := b.config.LlamaServer.ResolveBinary(splitMode)
+	binary := b.config.LlamaServer.Binary()
 
 	// Validate binary's existence before running
 	if _, err := os.Stat(binary); os.IsNotExist(err) {
 		return fmt.Errorf("llama-server binary not found: %s", binary)
-	}
-
-	// Warn about known ik_llama.cpp crash with graph + parallel.
-	if splitMode == "graph" && opts.Parallel > 0 {
-		fmt.Printf("WARNING: -sm graph with --parallel %d may crash due to ik_llama.cpp KV cache bug\n", opts.Parallel)
-		log.Printf("WARNING: -sm graph with --parallel %d may crash due to ik_llama.cpp KV cache bug", opts.Parallel)
 	}
 
 	// Build command args.

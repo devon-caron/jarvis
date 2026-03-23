@@ -37,8 +37,7 @@ search:
   api_key: "test-api-key"
   max_results: 10
 llama_server:
-  ik_binary_path: "/usr/local/bin/ik_llama-server"
-  vanilla_binary_path: "/usr/local/bin/llama-server"
+  binary_path: "/usr/local/bin/llama-server"
 `
 
 	// Create temporary file

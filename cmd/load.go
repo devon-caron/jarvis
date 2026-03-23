@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/client"
-	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/protocol"
 )
 
@@ -44,7 +42,7 @@ func init() {
 	loadCmd.Flags().StringVarP(&loadPath, "path", "p", "", "Inline model path (instead of registered name)")
 	loadCmd.Flags().StringVarP(&loadTimeout, "timeout", "t", "", "Inactivity timeout (e.g. \"30m\", \"1h\")")
 	loadCmd.Flags().IntVarP(&loadContextSize, "context-size", "c", 0, "Context window size (0 = use registered default or 8192)")
-	loadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
+	loadCmd.Flags().StringVarP(&loadSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow)")
 	loadCmd.Flags().IntVarP(&loadParallel, "parallel", "P", 0, "Number of parallel slots for concurrent requests (0 = single slot)")
 	loadCmd.Flags().BoolVarP(&loadFlashAttention, "flash-attn", "f", false, "Enable flash attention")
 	loadCmd.Flags().IntVarP(&loadBatchSize, "batch-size", "B", 0, "Micro-batch size for GPU utilization (0 = server default)")
@@ -79,14 +77,6 @@ func runLoad(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("invalid GPU ID %q: %w", s, err)
 			}
 			gpus = append(gpus, id)
-		}
-	}
-
-	// Warn about known ik_llama.cpp crash with graph + parallel.
-	if loadParallel > 0 && loadSplitMode != "" {
-		normalized, _ := daemon.NormalizeSplitMode(loadSplitMode)
-		if normalized == "graph" {
-			fmt.Fprintf(os.Stderr, "WARNING: combining --parallel with -n graph is experimental and may crash due to an ik_llama.cpp KV cache bug. Consider -n layer or -n row for parallel slots.\n")
 		}
 	}
 

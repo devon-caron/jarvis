@@ -36,7 +36,7 @@ var unregisterCmd = &cobra.Command{
 
 func init() {
 	registerCmd.Flags().IntVarP(&registerContextSize, "context-size", "c", 8192, "Default context window size")
-	registerCmd.Flags().StringVarP(&registerSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow), g(raph)")
+	registerCmd.Flags().StringVarP(&registerSplitMode, "nvlink", "n", "", "Multi-GPU split mode: l(ayer), r(ow)")
 	registerCmd.Flags().BoolVarP(&registerFlashAttention, "flash-attn", "f", false, "Enable flash attention by default for this model")
 	registerCmd.Flags().IntVarP(&registerBatchSize, "batch-size", "B", 0, "Default micro-batch size (0 = server default)")
 	registerCmd.Flags().StringVarP(&registerTensorSplit, "tensor-split", "T", "", "Default tensor split (e.g. \"1,1\")")

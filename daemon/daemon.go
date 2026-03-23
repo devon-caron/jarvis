@@ -107,10 +107,8 @@ func NormalizeSplitMode(mode string) (string, error) {
 		return "layer", nil
 	case "r", "row":
 		return "row", nil
-	case "g", "graph":
-		return "graph", nil
 	default:
-		return "", fmt.Errorf("invalid split mode %q: must be l(ayer), r(ow), or g(raph)", mode)
+		return "", fmt.Errorf("invalid split mode %q: must be l(ayer) or r(ow)", mode)
 	}
 }
 

@@ -21,13 +21,9 @@ type Config struct {
 	LlamaServer    LlamaServerConfig     `yaml:"llama_server"`
 }
 
-// LlamaServerConfig configures the llama-server binaries.
-// IKBinaryPath is used for graph split mode (ik_llama.cpp with NCCL support).
-// VanillaBinaryPath is used for layer/row split modes and as the default when
-// no split mode is specified.
+// LlamaServerConfig configures the llama-server binary.
 type LlamaServerConfig struct {
-	IKBinaryPath      string `yaml:"ik_binary_path"`
-	VanillaBinaryPath string `yaml:"vanilla_binary_path"`
+	BinaryPath string `yaml:"binary_path"`
 }
 
 // ModelEntry stores a registered model's path and settings.
@@ -66,21 +62,13 @@ type SearchConfig struct {
 	MaxResults int    `yaml:"max_results"`
 }
 
-// ResolveBinary returns the llama-server binary path for the given split mode.
-// "graph" uses IKBinaryPath, all other modes use VanillaBinaryPath.
-// Returns "llama-server" (PATH lookup) if the resolved field is empty.
-func (l LlamaServerConfig) ResolveBinary(splitMode string) string {
-	var binary string
-	switch splitMode {
-	case "graph":
-		binary = l.IKBinaryPath
-	default:
-		binary = l.VanillaBinaryPath
+// Binary returns the configured llama-server binary path.
+// Returns "llama-server" (PATH lookup) if BinaryPath is empty.
+func (l LlamaServerConfig) Binary() string {
+	if l.BinaryPath == "" {
+		return "llama-server"
 	}
-	if binary == "" {
-		binary = "llama-server"
-	}
-	return binary
+	return l.BinaryPath
 }
 
 // WriteDefault writes a default config file to the standard config path.
@@ -128,10 +116,7 @@ func Defaults() *Config {
 			Provider:   "brave",
 			MaxResults: 5,
 		},
-		LlamaServer: LlamaServerConfig{
-			IKBinaryPath:      "",
-			VanillaBinaryPath: "",
-		},
+		LlamaServer: LlamaServerConfig{},
 	}
 }
 
