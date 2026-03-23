@@ -319,10 +319,12 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		opts.TopK = h.Config.Inference.TopK
 	}
 
-	err := h.Registry.Chat(ctx, msgs, opts, func(token string) {
-		log.Printf("chat function received token %v", token)
+	onNewToken := func(token string) {
+		log.Printf("chat function received token %s", token)
 		rw.Write(protocol.DeltaTokenResponse(token))
-	}, req.ShellPID, req.ClearContext)
+	}
+
+	err := h.Registry.Chat(ctx, msgs, opts, onNewToken, req.ShellPID, req.ClearContext)
 	if err != nil {
 		log.Printf("chat function received error: %v", err)
 		rw.Write(protocol.ErrorResponse(err.Error()))
