@@ -35,16 +35,16 @@ func (rw *ResponseWriter) Write(resp *protocol.Response) error {
 
 // Handler processes incoming requests and writes responses.
 type Handler struct {
-	Registry *ModelRegistry
+	Register *ModelRegister
 	Config   *config.Config
 	// Searcher search.Searcher
 	StopCh chan struct{}
 }
 
 // NewHandler creates a Handler with the given dependencies.
-func NewHandler(registry *ModelRegistry, cfg *config.Config, stopCh chan struct{}) *Handler {
+func NewHandler(mr *ModelRegister, cfg *config.Config, stopCh chan struct{}) *Handler {
 	return &Handler{
-		Registry: registry,
+		Register: mr,
 		Config:   cfg,
 		// Searcher: searcher,
 		StopCh: stopCh,
@@ -93,9 +93,9 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 		var ok bool
 		entry, ok = h.Config.Models[req.Name]
 		if !ok {
-			log.Printf("model %q not found in registry", req.Name)
+			log.Printf("model %q not found in register", req.Name)
 			rw.Write(protocol.ErrorResponse(fmt.Sprintf(
-				"model %q not found in registry; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
+				"model %q not found in register; use 'jarvis models register' to add it or '-p' to load by path", req.Name)))
 			return
 		}
 		path = entry.Path
@@ -109,7 +109,7 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 
 	log.Printf("model path ascertained: %s", path)
 
-	// request contextSize is a command flag, takes precedence over registry value
+	// request contextSize is a command flag, takes precedence over register value
 	if req.ContextSize > 0 {
 		contextSize = req.ContextSize
 	}
@@ -121,13 +121,13 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 
 	log.Printf("context size: %d", contextSize)
 
-	// request splitMode is a command flag, takes precedence over registry value
+	// request splitMode is a command flag, takes precedence over register value
 	if req.SplitMode != "" {
 		splitMode = req.SplitMode
 	}
 
-	// request flashAttention is a command flag, takes precedence over registry value
-	// if not set, check registry, otherwise use global default
+	// request flashAttention is a command flag, takes precedence over register value
+	// if not set, check register, otherwise use global default
 	flashAttention = req.FlashAttention
 	if !flashAttention {
 		if entry.FlashAttention {
@@ -139,8 +139,8 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 
 	log.Printf("flash attention: %v", flashAttention)
 
-	// request batchSize is a command flag, takes precedence over registry value
-	// if not set, check registry, otherwise use global default
+	// request batchSize is a command flag, takes precedence over register value
+	// if not set, check register, otherwise use global default
 	batchSize = req.BatchSize
 	if batchSize == 0 {
 		batchSize = entry.BatchSize
@@ -151,8 +151,8 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 
 	log.Printf("batch size: %d", batchSize)
 
-	// request tensorSplit is a command flag, takes precedence over registry value
-	// if not set, check registry, otherwise use global default
+	// request tensorSplit is a command flag, takes precedence over register value
+	// if not set, check register, otherwise use global default
 	tensorSplit = req.TensorSplit
 	if tensorSplit == "" {
 		tensorSplit = entry.TensorSplit
@@ -208,7 +208,7 @@ func (h *Handler) handleLoad(ctx context.Context, req *protocol.LoadRequest, rw 
 
 	log.Printf("loading model with options: %+v", opts)
 
-	if err := h.Registry.Load(ctx, name, path, gpus, timeout, opts); err != nil {
+	if err := h.Register.Load(ctx, name, path, gpus, timeout, opts); err != nil {
 		log.Printf("load handler model load failed: %v", err)
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("load handler model load failed: %v", err)))
 		return
@@ -229,7 +229,7 @@ func (h *Handler) handleUnload(req *protocol.UnloadRequest, rw *ResponseWriter) 
 		return
 	}
 
-	if err := h.Registry.Unload(req.Name); err != nil {
+	if err := h.Register.Unload(req.Name); err != nil {
 		log.Printf("unload handler failed: %v", err)
 		rw.Write(protocol.ErrorResponse(fmt.Sprintf("unload handler failed: %v", err)))
 		return
@@ -324,7 +324,7 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 		rw.Write(protocol.DeltaTokenResponse(token))
 	}
 
-	err := h.Registry.Chat(ctx, msgs, opts, onNewToken, req.ShellPID, req.ClearContext)
+	err := h.Register.Chat(ctx, msgs, opts, onNewToken, req.ShellPID, req.ClearContext)
 	if err != nil {
 		log.Printf("chat function received error: %v", err)
 		rw.Write(protocol.ErrorResponse(err.Error()))
@@ -338,11 +338,11 @@ func (h *Handler) handleChat(ctx context.Context, req *protocol.ChatRequest, rw 
 func (h *Handler) handleStatus(rw *ResponseWriter) {
 	log.Printf("handling status request")
 
-	model := h.Registry.Status()
+	model := h.Register.Status()
 
 	payload := &protocol.StatusPayload{
 		Running:     true,
-		ModelLoaded: h.Registry.IsLoaded(),
+		ModelLoaded: h.Register.IsLoaded(),
 		PID:         os.Getpid(),
 	}
 

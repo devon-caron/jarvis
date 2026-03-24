@@ -45,12 +45,12 @@ func Run() error {
 
 	log.Printf("jarvis daemon process starting (pid=%d)", os.Getpid())
 
-	registry := NewModelRegistry(cfg, NewServerBackend)
-	defer registry.Shutdown()
+	mr := NewModelRegister(cfg, NewServerBackend)
+	defer mr.Shutdown()
 
 	// Create handler and server
 	stopCh := make(chan struct{}, 1)
-	handler := NewHandler(registry, cfg, stopCh)
+	handler := NewHandler(mr, cfg, stopCh)
 	server := NewServer(internal.SocketPath(), handler)
 	log.Println("Server created: ", server)
 
@@ -85,7 +85,7 @@ func Run() error {
 	}
 
 	server.Close()
-	registry.Shutdown()
+	mr.Shutdown()
 	log.Printf("daemon stopped")
 	return nil
 }
