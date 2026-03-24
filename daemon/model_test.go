@@ -90,21 +90,21 @@ func newMockBackendFactory(backends ...*mockBackend) func(*config.Config) ModelB
 	}
 }
 
-func newTestRegistry(t *testing.T, backends ...*mockBackend) *ModelRegistry {
+func newTestRegister(t *testing.T, backends ...*mockBackend) *ModelRegister {
 	t.Helper()
 	cfg := config.Defaults()
 	factory := newMockBackendFactory(backends...)
-	return NewModelRegistry(cfg, factory)
+	return NewModelRegister(cfg, factory)
 }
 
 // --- ModelRegistry tests ---
 
-// TestRegistry_LoadUnload verifies the full load/unload lifecycle: loads a model
+// TestModelRegister_LoadUnload verifies the full load/unload lifecycle: loads a model
 // by name, checks Status() returns the correct ModelInfo, unloads by name, and
 // confirms Status() returns nil afterward.
-func TestRegistry_LoadUnload(t *testing.T) {
+func TestModelRegister_LoadUnload(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	if err := reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -127,12 +127,12 @@ func TestRegistry_LoadUnload(t *testing.T) {
 	}
 }
 
-// TestRegistry_Load_WhenAlreadyLoaded_Errors verifies that attempting to load
+// TestModelRegister_Load_WhenAlreadyLoaded_Errors verifies that attempting to load
 // a second model while one is already loaded returns an error, enforcing the
 // single-model constraint.
-func TestRegistry_Load_WhenAlreadyLoaded_Errors(t *testing.T) {
+func TestModelRegister_Load_WhenAlreadyLoaded_Errors(t *testing.T) {
 	b1 := &mockBackend{}
-	reg := newTestRegistry(t, b1)
+	reg := newTestRegister(t, b1)
 
 	reg.Load(context.Background(), "test", "/model1.gguf", []int{0}, 0, LoadOpts{})
 
@@ -142,12 +142,12 @@ func TestRegistry_Load_WhenAlreadyLoaded_Errors(t *testing.T) {
 	}
 }
 
-// TestRegistry_LoadError verifies that when the backend returns a load error,
+// TestModelRegister_LoadError verifies that when the backend returns a load error,
 // the registry remains unloaded (Status() returns nil), and a fresh registry
 // can still load successfully afterward.
-func TestRegistry_LoadError(t *testing.T) {
+func TestModelRegister_LoadError(t *testing.T) {
 	backend := &mockBackend{loadErr: errors.New("load failed")}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	err := reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 	if err == nil {
@@ -160,16 +160,16 @@ func TestRegistry_LoadError(t *testing.T) {
 
 	// Should be able to load again after failure
 	backend2 := &mockBackend{}
-	reg2 := newTestRegistry(t, backend2)
+	reg2 := newTestRegister(t, backend2)
 	if err := reg2.Load(context.Background(), "test2", "/model2.gguf", []int{0}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("should be able to load after prior failure: %v", err)
 	}
 }
 
-// TestRegistry_UnloadWhenEmpty verifies that calling Unload on an empty
+// TestModelRegister_UnloadWhenEmpty verifies that calling Unload on an empty
 // registry (no model loaded) returns an error.
-func TestRegistry_UnloadWhenEmpty(t *testing.T) {
-	reg := newTestRegistry(t)
+func TestModelRegister_UnloadWhenEmpty(t *testing.T) {
+	reg := newTestRegister(t)
 
 	err := reg.Unload("")
 	if err == nil {
@@ -177,11 +177,11 @@ func TestRegistry_UnloadWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestRegistry_UnloadEmptyName verifies that calling Unload with an empty name
+// TestModelRegister_UnloadEmptyName verifies that calling Unload with an empty name
 // successfully unloads the currently loaded model.
-func TestRegistry_UnloadEmptyName(t *testing.T) {
+func TestModelRegister_UnloadEmptyName(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -195,11 +195,11 @@ func TestRegistry_UnloadEmptyName(t *testing.T) {
 	}
 }
 
-// TestRegistry_UnloadWrongName verifies that calling Unload with a name that
+// TestModelRegister_UnloadWrongName verifies that calling Unload with a name that
 // doesn't match the loaded model returns an error.
-func TestRegistry_UnloadWrongName(t *testing.T) {
+func TestModelRegister_UnloadWrongName(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -209,10 +209,10 @@ func TestRegistry_UnloadWrongName(t *testing.T) {
 	}
 }
 
-// TestRegistry_UnloadNotLoaded verifies that calling Unload with a specific
+// TestModelRegister_UnloadNotLoaded verifies that calling Unload with a specific
 // name when no model is loaded returns an error.
-func TestRegistry_UnloadNotLoaded(t *testing.T) {
-	reg := newTestRegistry(t)
+func TestModelRegister_UnloadNotLoaded(t *testing.T) {
+	reg := newTestRegister(t)
 
 	err := reg.Unload("nonexistent")
 	if err == nil {
@@ -220,11 +220,11 @@ func TestRegistry_UnloadNotLoaded(t *testing.T) {
 	}
 }
 
-// TestRegistry_Chat verifies that Chat delegates to the backend's RunChat,
+// TestModelRegister_Chat verifies that Chat delegates to the backend's RunChat,
 // collecting streamed tokens ("Hello ", "world!") via the onToken callback.
-func TestRegistry_Chat(t *testing.T) {
+func TestModelRegister_Chat(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -243,10 +243,10 @@ func TestRegistry_Chat(t *testing.T) {
 	}
 }
 
-// TestRegistry_Chat_NoModelLoaded verifies that Chat returns an error when
+// TestModelRegister_Chat_NoModelLoaded verifies that Chat returns an error when
 // no model is loaded.
-func TestRegistry_Chat_NoModelLoaded(t *testing.T) {
-	reg := newTestRegistry(t)
+func TestModelRegister_Chat_NoModelLoaded(t *testing.T) {
+	reg := newTestRegister(t)
 
 	err := reg.Chat(context.Background(),
 		nil, protocol.InferenceOpts{}, func(string) {},
@@ -257,11 +257,11 @@ func TestRegistry_Chat_NoModelLoaded(t *testing.T) {
 	}
 }
 
-// TestRegistry_Chat_ChatError verifies that Chat propagates errors returned
+// TestModelRegister_Chat_ChatError verifies that Chat propagates errors returned
 // by the backend's RunChat method.
-func TestRegistry_Chat_ChatError(t *testing.T) {
+func TestModelRegister_Chat_ChatError(t *testing.T) {
 	backend := &mockBackend{chatErr: errors.New("chat failed")}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -274,12 +274,12 @@ func TestRegistry_Chat_ChatError(t *testing.T) {
 	}
 }
 
-// TestRegistry_ConcurrentChat verifies that 10 concurrent Chat calls all
+// TestModelRegister_ConcurrentChat verifies that 10 concurrent Chat calls all
 // complete successfully and the backend receives exactly 10 RunChat calls,
 // confirming thread safety under the RWMutex.
-func TestRegistry_ConcurrentChat(t *testing.T) {
+func TestModelRegister_ConcurrentChat(t *testing.T) {
 	backend := &mockBackend{chatDelay: 10 * time.Millisecond}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -303,21 +303,21 @@ func TestRegistry_ConcurrentChat(t *testing.T) {
 	}
 }
 
-// TestRegistry_Status_Empty verifies Status() returns nil when no model
+// TestModelRegister_Status_Empty verifies Status() returns nil when no model
 // is loaded.
-func TestRegistry_Status_Empty(t *testing.T) {
-	reg := newTestRegistry(t)
+func TestModelRegister_Status_Empty(t *testing.T) {
+	reg := newTestRegister(t)
 
 	if reg.Status() != nil {
 		t.Error("expected nil status when no model loaded")
 	}
 }
 
-// TestRegistry_Status_WithModel verifies Status() returns correct ModelInfo
+// TestModelRegister_Status_WithModel verifies Status() returns correct ModelInfo
 // (name and model path) after loading a model.
-func TestRegistry_Status_WithModel(t *testing.T) {
+func TestModelRegister_Status_WithModel(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -333,11 +333,11 @@ func TestRegistry_Status_WithModel(t *testing.T) {
 	}
 }
 
-// TestRegistry_IsLoaded verifies the IsLoaded() getter returns false initially,
+// TestModelRegister_IsLoaded verifies the IsLoaded() getter returns false initially,
 // true after Load, and false again after Unload.
-func TestRegistry_IsLoaded(t *testing.T) {
+func TestModelRegister_IsLoaded(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	if reg.IsLoaded() {
 		t.Error("should not be loaded initially")
@@ -356,11 +356,11 @@ func TestRegistry_IsLoaded(t *testing.T) {
 	}
 }
 
-// TestRegistry_Shutdown verifies Shutdown unloads the backend, clears Status()
+// TestModelRegister_Shutdown verifies Shutdown unloads the backend, clears Status()
 // to nil, and sets IsLoaded() to false.
-func TestRegistry_Shutdown(t *testing.T) {
+func TestModelRegister_Shutdown(t *testing.T) {
 	backend := &mockBackend{}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -377,11 +377,11 @@ func TestRegistry_Shutdown(t *testing.T) {
 	}
 }
 
-// TestRegistry_UnloadError verifies that Unload propagates errors returned
+// TestModelRegister_UnloadError verifies that Unload propagates errors returned
 // by the backend's UnloadModel method.
-func TestRegistry_UnloadError(t *testing.T) {
+func TestModelRegister_UnloadError(t *testing.T) {
 	backend := &mockBackend{unloadErr: errors.New("unload failed")}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	reg.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
@@ -391,12 +391,12 @@ func TestRegistry_UnloadError(t *testing.T) {
 	}
 }
 
-// TestRegistry_Load_ContextCancelled verifies that cancelling the context
+// TestModelRegister_Load_ContextCancelled verifies that cancelling the context
 // during a slow Load causes it to return an error, and the registry remains
 // in an unloaded state afterward.
-func TestRegistry_Load_ContextCancelled(t *testing.T) {
+func TestModelRegister_Load_ContextCancelled(t *testing.T) {
 	backend := &mockBackend{loadDelay: 5 * time.Second}
-	reg := newTestRegistry(t, backend)
+	reg := newTestRegister(t, backend)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -417,13 +417,13 @@ func TestRegistry_Load_ContextCancelled(t *testing.T) {
 	}
 }
 
-// TestRegistry_Load_FailureAllowsReload verifies that after a failed Load
+// TestModelRegister_Load_FailureAllowsReload verifies that after a failed Load
 // (backend error), the registry is not stuck in a "loaded" state and a
 // subsequent Load on the same registry succeeds.
-func TestRegistry_Load_FailureAllowsReload(t *testing.T) {
+func TestModelRegister_Load_FailureAllowsReload(t *testing.T) {
 	backend := &mockBackend{loadErr: fmt.Errorf("simulated failure")}
 	backend2 := &mockBackend{}
-	reg := newTestRegistry(t, backend, backend2)
+	reg := newTestRegister(t, backend, backend2)
 
 	err := reg.Load(context.Background(), "test", "/model.gguf", []int{0, 1}, 0, LoadOpts{})
 	if err == nil {
@@ -440,13 +440,13 @@ func TestRegistry_Load_FailureAllowsReload(t *testing.T) {
 	}
 }
 
-// TestRegistry_LoadAfterUnload verifies the full cycle of load -> unload ->
+// TestModelRegister_LoadAfterUnload verifies the full cycle of load -> unload ->
 // load with a different model, confirming the second model is correctly
 // reflected in Status().
-func TestRegistry_LoadAfterUnload(t *testing.T) {
+func TestModelRegister_LoadAfterUnload(t *testing.T) {
 	b1 := &mockBackend{}
 	b2 := &mockBackend{}
-	reg := newTestRegistry(t, b1, b2)
+	reg := newTestRegister(t, b1, b2)
 
 	if err := reg.Load(context.Background(), "m1", "/m1.gguf", []int{0}, 0, LoadOpts{}); err != nil {
 		t.Fatalf("Load m1: %v", err)

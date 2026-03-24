@@ -34,9 +34,9 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 	backend := &mockBackend{}
 	cfg := config.Defaults()
 	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
+	mr := NewModelRegister(cfg, factory)
 	stopCh := make(chan struct{}, 1)
-	h := NewHandler(registry, cfg, stopCh)
+	h := NewHandler(mr, cfg, stopCh)
 	return h, backend
 }
 
@@ -45,7 +45,7 @@ func newTestHandler(t *testing.T) (*Handler, *mockBackend) {
 // confirms the final response is "done" with the full content "Hello world!".
 func TestHandler_Chat(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -129,10 +129,10 @@ func TestHandler_Chat_SystemPrompt(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.SystemPrompt = "Be helpful"
 	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, make(chan struct{}, 1))
+	mr := NewModelRegister(cfg, factory)
+	h := NewHandler(mr, cfg, make(chan struct{}, 1))
 
-	registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	mr.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -187,7 +187,7 @@ func TestHandler_Load_NilPayload(t *testing.T) {
 }
 
 // TestHandler_Load_AliasResolution verifies the handler resolves a model name
-// to its path via the config registry, loading alias "big" and confirming the
+// to its path via the config mr, loading alias "big" and confirming the
 // backend received the resolved path "/path/to/big.gguf".
 func TestHandler_Load_AliasResolution(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -198,8 +198,8 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 
 	backend := &mockBackend{}
 	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, make(chan struct{}, 1))
+	mr := NewModelRegister(cfg, factory)
+	h := NewHandler(mr, cfg, make(chan struct{}, 1))
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -222,7 +222,7 @@ func TestHandler_Load_AliasResolution(t *testing.T) {
 // loaded model by name, returning an OK response.
 func TestHandler_Unload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -242,7 +242,7 @@ func TestHandler_Unload(t *testing.T) {
 // when an unload request has a nil Unload payload.
 func TestHandler_Unload_NilPayload(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -279,7 +279,7 @@ func TestHandler_Unload_NoModel(t *testing.T) {
 // is loaded.
 func TestHandler_Status(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -384,7 +384,7 @@ func TestHandler_Load_WithTimeout(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	model := h.Registry.Status()
+	model := h.Register.Status()
 	if model == nil {
 		t.Fatal("expected model to be loaded")
 	}
@@ -416,8 +416,8 @@ func TestHandler_Load_DefaultTimeout(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.DefaultTimeout = "15m"
 	factory := func(c *config.Config) ModelBackend { return backend }
-	registry := NewModelRegistry(cfg, factory)
-	h := NewHandler(registry, cfg, make(chan struct{}, 1))
+	mr := NewModelRegister(cfg, factory)
+	h := NewHandler(mr, cfg, make(chan struct{}, 1))
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -432,7 +432,7 @@ func TestHandler_Load_DefaultTimeout(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	model := registry.Status()
+	model := mr.Status()
 	if model == nil {
 		t.Fatal("expected model to be loaded")
 	}
@@ -475,7 +475,7 @@ func TestHandler_Load_DefaultName(t *testing.T) {
 		t.Errorf("expected OK response, got %v", responses)
 	}
 
-	model := h.Registry.Status()
+	model := h.Register.Status()
 	if model == nil {
 		t.Fatal("expected model to be loaded")
 	}
@@ -562,7 +562,7 @@ func TestResponseWriter(t *testing.T) {
 // a "done" response.
 func TestHandler_Chat_ClearContext(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)
@@ -587,7 +587,7 @@ func TestHandler_Chat_ClearContext(t *testing.T) {
 // chat request with a ShellPID set, completing with a "done" response.
 func TestHandler_Chat_ShellPID(t *testing.T) {
 	h, _ := newTestHandler(t)
-	h.Registry.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
+	h.Register.Load(context.Background(), "test", "/model.gguf", []int{0}, 0, LoadOpts{})
 
 	var buf bytes.Buffer
 	rw := NewResponseWriter(&buf)

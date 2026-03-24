@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,11 +13,13 @@ import (
 	"github.com/devon-caron/jarvis/protocol"
 )
 
-// ModelRegistry manages loading and unloading a single model at a time.
-type ModelRegistry struct {
+// ModelRegister manages loading and unloading a single model at a time.
+type ModelRegister struct {
 	mu         sync.RWMutex
 	loaded     bool
 	name       string
+	history    map[int][]protocol.ChatMessage
+	historyMu  sync.Mutex
 	path       string
 	gpus       []int
 	backend    ModelBackend
@@ -23,26 +27,88 @@ type ModelRegistry struct {
 	cfg        *config.Config
 }
 
-// NewModelRegistry creates a new registry.
-func NewModelRegistry(cfg *config.Config, newBackend func(*config.Config) ModelBackend) *ModelRegistry {
-	return &ModelRegistry{
+// NewModelRegister creates a new register instance.
+func NewModelRegister(cfg *config.Config, newBackend func(*config.Config) ModelBackend) *ModelRegister {
+	return &ModelRegister{
 		newBackend: newBackend,
 		cfg:        cfg,
+		history:    make(map[int][]protocol.ChatMessage),
 	}
 }
 
-func (r *ModelRegistry) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
+func (r *ModelRegister) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	log.Printf("Chat called with %d messages, opts: %+v, shellPID: %d, clearContext: %v", len(msgs), opts, shellPID, clearContext)
 
 	if !r.loaded || r.backend == nil {
 		return errors.New("no model loaded")
 	}
 
-	return r.backend.RunChat(ctx, msgs, opts, onToken)
+	// Split incoming messages into system-role prefix and conversation tail.
+	var systemMsgs, conversationMsgs []protocol.ChatMessage
+	for i, m := range msgs {
+		if m.Role != "system" {
+			conversationMsgs = msgs[i:]
+			break
+		}
+		systemMsgs = append(systemMsgs, m)
+	}
+	if len(conversationMsgs) == 0 && len(systemMsgs) == len(msgs) {
+		// All messages are system messages (unusual but handle gracefully).
+		conversationMsgs = nil
+	}
+
+	log.Printf("System messages: %d, conversation messages: %d", len(systemMsgs), len(conversationMsgs))
+
+	var fullHistory, priorHistory []protocol.ChatMessage
+
+	// Build history: only prepend system messages when starting fresh (no prior history or clearContext).
+	r.historyMu.Lock()
+	if clearContext {
+		delete(r.history, shellPID)
+		priorHistory = systemMsgs
+	} else if len(r.history[shellPID]) == 0 {
+		priorHistory = systemMsgs
+	} else {
+		priorHistory = r.history[shellPID]
+	}
+
+	log.Printf("History for shell %d: %d messages", shellPID, len(r.history[shellPID]))
+
+	fullHistory = append(fullHistory, priorHistory...)
+	fullHistory = append(fullHistory, conversationMsgs...)
+
+	r.history[shellPID] = fullHistory
+
+	r.historyMu.Unlock()
+
+	var responseBuilder strings.Builder
+	tokenWriterWrapper := func(token string) {
+		responseBuilder.WriteString(token)
+		onToken(token)
+	}
+
+	log.Printf("Running chat with %d messages", len(fullHistory))
+	err := r.backend.RunChat(ctx, fullHistory, opts, tokenWriterWrapper)
+	if err != nil {
+		log.Printf("chat failed: %v", err)
+		return fmt.Errorf("chat failed: %w", err)
+	}
+
+	r.historyMu.Lock()
+	r.history[shellPID] = append(r.history[shellPID], protocol.ChatMessage{
+		Role:    "assistant",
+		Content: responseBuilder.String(),
+	})
+	r.historyMu.Unlock()
+
+	log.Printf("Chat completed, response: %s", responseBuilder.String())
+	return nil
 }
 
-func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
+func (r *ModelRegister) Load(ctx context.Context, name, path string, gpus []int, timeout time.Duration, opts LoadOpts) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -65,7 +131,7 @@ func (r *ModelRegistry) Load(ctx context.Context, name, path string, gpus []int,
 }
 
 // Unload unloads the currently loaded model.
-func (r *ModelRegistry) Unload(name string) error {
+func (r *ModelRegister) Unload(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -91,7 +157,7 @@ func (r *ModelRegistry) Unload(name string) error {
 }
 
 // Status returns info about the currently loaded model, if any.
-func (r *ModelRegistry) Status() *protocol.ModelInfo {
+func (r *ModelRegister) Status() *protocol.ModelInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -109,13 +175,13 @@ func (r *ModelRegistry) Status() *protocol.ModelInfo {
 }
 
 // IsLoaded returns whether a model is currently loaded.
-func (r *ModelRegistry) IsLoaded() bool {
+func (r *ModelRegister) IsLoaded() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.loaded
 }
 
-func (r *ModelRegistry) Shutdown() {
+func (r *ModelRegister) Shutdown() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
