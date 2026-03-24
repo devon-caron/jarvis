@@ -64,7 +64,7 @@ func Execute() {
 }
 
 func runChat(cmd *cobra.Command, args []string) error {
-	cmd.SilenceUsage = true
+	//cmd.SilenceUsage = true
 
 	_, _, err := handleChat(args[0], Flags{
 		WebSearch:    webSearch,
@@ -101,6 +101,11 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 			ShellPID:     os.Getppid(),
 			ClearContext: flags.ClearContext,
 		},
+	}
+
+	if flags.SystemPrompt != "" {
+		fmt.Println("((Note: system prompt currently bugged. TODO))")
+		fmt.Println()
 	}
 
 	genResponse := ""
