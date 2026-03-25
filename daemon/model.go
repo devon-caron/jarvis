@@ -36,11 +36,11 @@ func NewModelRegister(cfg *config.Config, newBackend func(*config.Config) ModelB
 	}
 }
 
-func (r *ModelRegister) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool) error {
+func (r *ModelRegister) Chat(ctx context.Context, msgs []protocol.ChatMessage, opts protocol.InferenceOpts, onToken func(string), shellPID int, clearContext bool, isPty bool) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	log.Printf("Chat called with %d messages, opts: %+v, shellPID: %d, clearContext: %v", len(msgs), opts, shellPID, clearContext)
+	log.Printf("Chat called with %d messages, opts: %+v, shellPID: %d, clearContext: %v, isPty: %v", len(msgs), opts, shellPID, clearContext, isPty)
 
 	if !r.loaded || r.backend == nil {
 		return errors.New("no model loaded")
@@ -57,7 +57,21 @@ func (r *ModelRegister) Chat(ctx context.Context, msgs []protocol.ChatMessage, o
 	}
 	if len(conversationMsgs) == 0 && len(systemMsgs) == len(msgs) {
 		// All messages are system messages (unusual but handle gracefully).
-		conversationMsgs = nil
+		conversationMsgs = []protocol.ChatMessage{}
+	}
+
+	// with a pty terminal, prior context is provided via a system message appended to existing ones.
+	// conversationMsgs will have the user prompt again
+	if isPty {
+		// remove the last system message containing prior pty terminal context
+		if clearContext {
+			systemMsgs = systemMsgs[:len(systemMsgs)-1]
+		}
+		systemMsgs = append(systemMsgs, protocol.ChatMessage{
+			Role: "system",
+			Content: "Please interact with the user as if your conversation history with the user is through jarvis commands + other terminal commands provided in your context." +
+				" If there looks to be no context, ask the user what they need help with.",
+		})
 	}
 
 	log.Printf("System messages: %d, conversation messages: %d", len(systemMsgs), len(conversationMsgs))
