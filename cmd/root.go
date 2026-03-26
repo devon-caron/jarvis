@@ -10,6 +10,7 @@ import (
 
 	"github.com/devon-caron/jarvis/client"
 	"github.com/devon-caron/jarvis/protocol"
+	ptyShell "github.com/devon-caron/jarvis/pty"
 )
 
 type StatsReport struct {
@@ -89,22 +90,31 @@ func handleChat(prompt string, flags Flags, silent bool) (string, *StatsReport, 
 		opts.MaxTokens = flags.MaxTokens
 	}
 
+	// Load terminal context from PTY if available
+	var terminalContext string
+	if ctxPath := os.Getenv("JARVIS_PTY_CONTEXT"); ctxPath != "" {
+		if raw, err := ptyShell.ReadContext(ctxPath); err == nil && raw != "" {
+			terminalContext = ptyShell.SanitizeContext(raw)
+		}
+	}
+
 	req := &protocol.Request{
 		Type: protocol.ReqChat,
 		Chat: &protocol.ChatRequest{
 			Messages: []protocol.ChatMessage{
 				{Role: "user", Content: prompt},
 			},
-			WebSearch:    flags.WebSearch,
-			SystemPrompt: flags.SystemPrompt,
-			Opts:         opts,
-			ShellPID:     os.Getppid(),
-			ClearContext: flags.ClearContext,
+			WebSearch:       flags.WebSearch,
+			SystemPrompt:    flags.SystemPrompt,
+			Opts:            opts,
+			ShellPID:        os.Getppid(),
+			ClearContext:    flags.ClearContext,
+			TerminalContext: terminalContext,
 		},
 	}
 
 	if flags.SystemPrompt != "" {
-		fmt.Println("((Note: system prompt currently bugged. TODO))")
+		fmt.Println("((Note: providing system prompt via command line is currently bugged. TODO))") // TODO
 		fmt.Println()
 	}
 
