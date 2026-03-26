@@ -235,7 +235,7 @@ func TestModelRegister_Chat(t *testing.T) {
 		protocol.InferenceOpts{},
 		func(token string) { tokens = append(tokens, token) },
 		0, false,
-	)
+		false)
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestModelRegister_Chat_NoModelLoaded(t *testing.T) {
 	err := reg.Chat(context.Background(),
 		nil, protocol.InferenceOpts{}, func(string) {},
 		0, false,
-	)
+		false)
 	if err == nil {
 		t.Error("expected error when no model loaded")
 	}
@@ -269,7 +269,7 @@ func TestModelRegister_Chat_ChatError(t *testing.T) {
 	err := reg.Chat(context.Background(),
 		nil, protocol.InferenceOpts{}, func(string) {},
 		0, false,
-	)
+		false)
 	if err == nil || !strings.Contains(err.Error(), "chat failed") {
 		t.Errorf("expected chat error, got: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestModelRegister_ConcurrentChat(t *testing.T) {
 				protocol.InferenceOpts{},
 				func(string) {},
 				0, false,
-			)
+				false)
 		}()
 	}
 	wg.Wait()
@@ -522,7 +522,7 @@ func TestChat_HistoryAccumulation(t *testing.T) {
 	err := reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "Be helpful"), chatMsg("user", "hello")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	if err != nil {
 		t.Fatalf("turn 1: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestChat_HistoryAccumulation(t *testing.T) {
 	err = reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "Be helpful"), chatMsg("user", "how are you")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	if err != nil {
 		t.Fatalf("turn 2: %v", err)
 	}
@@ -566,17 +566,17 @@ func TestChat_SystemMsgsNotDuplicated(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q1")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	// Turn 2
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q2")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	// Turn 3
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q3")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	turn3 := (*captured)[2]
 	// Should be: system, user, assistant, user, assistant, user
@@ -606,17 +606,17 @@ func TestChat_ClearContextResetsHistory(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q1")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q2")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	// Now clear context.
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "new sys"), chatMsg("user", "fresh start")},
 		protocol.InferenceOpts{}, func(string) {}, pid, true,
-	)
+		false)
 
 	turn3 := (*captured)[2]
 	// Should be a fresh conversation: just [system, user], no prior history.
@@ -639,17 +639,17 @@ func TestChat_ClearContextThenContinue(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "old"), chatMsg("user", "old q")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "new"), chatMsg("user", "reset")},
 		protocol.InferenceOpts{}, func(string) {}, pid, true,
-	)
+		false)
 
 	// Continue after clear.
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "new"), chatMsg("user", "follow up")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	turn3 := (*captured)[2]
 	assertRoles(t, "post-clear continuation", turn3, "system", "user", "assistant", "user")
@@ -673,17 +673,17 @@ func TestChat_ShellPIDIsolation(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "A-sys"), chatMsg("user", "A1")},
 		protocol.InferenceOpts{}, func(string) {}, 100, false,
-	)
+		false)
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "A-sys"), chatMsg("user", "A2")},
 		protocol.InferenceOpts{}, func(string) {}, 100, false,
-	)
+		false)
 
 	// Shell B: one turn — should NOT see shell A's history.
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "B-sys"), chatMsg("user", "B1")},
 		protocol.InferenceOpts{}, func(string) {}, 200, false,
-	)
+		false)
 
 	shellBMsgs := (*captured)[2]
 	assertRoles(t, "shell B", shellBMsgs, "system", "user")
@@ -698,7 +698,7 @@ func TestChat_ShellPIDIsolation(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "A-sys"), chatMsg("user", "A3")},
 		protocol.InferenceOpts{}, func(string) {}, 100, false,
-	)
+		false)
 
 	shellA3 := (*captured)[3]
 	assertRoles(t, "shell A turn 3", shellA3, "system", "user", "assistant", "user", "assistant", "user")
@@ -713,17 +713,17 @@ func TestChat_ClearContextOnlyAffectsTargetShell(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "A1")},
 		protocol.InferenceOpts{}, func(string) {}, 100, false,
-	)
+		false)
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "B1")},
 		protocol.InferenceOpts{}, func(string) {}, 200, false,
-	)
+		false)
 
 	// Clear shell 100 only.
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "A-fresh")},
 		protocol.InferenceOpts{}, func(string) {}, 100, true,
-	)
+		false)
 
 	shellAClear := (*captured)[2]
 	assertRoles(t, "shell A after clear", shellAClear, "system", "user")
@@ -732,7 +732,7 @@ func TestChat_ClearContextOnlyAffectsTargetShell(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "B2")},
 		protocol.InferenceOpts{}, func(string) {}, 200, false,
-	)
+		false)
 
 	shellB2 := (*captured)[3]
 	assertRoles(t, "shell B unaffected", shellB2, "system", "user", "assistant", "user")
@@ -747,11 +747,11 @@ func TestChat_NoSystemMessages(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("user", "q1")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("user", "q2")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	turn1 := (*captured)[0]
 	assertRoles(t, "turn 1 no sys", turn1, "user")
@@ -769,13 +769,13 @@ func TestChat_AssistantResponseRecorded(t *testing.T) {
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("user", "hi")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	// Second call — the backend should see the previous assistant response.
 	reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("user", "thanks")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 
 	turn2 := (*captured)[1]
 	if turn2[1].Role != "assistant" || turn2[1].Content != "Hello world!" {
@@ -797,7 +797,7 @@ func TestChat_BackendErrorDoesNotAppendAssistant(t *testing.T) {
 	err := reg.Chat(context.Background(),
 		[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", "q1")},
 		protocol.InferenceOpts{}, func(string) {}, pid, false,
-	)
+		false)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -808,6 +808,121 @@ func TestChat_BackendErrorDoesNotAppendAssistant(t *testing.T) {
 	reg.historyMu.Unlock()
 
 	assertRoles(t, "after error", hist, "system", "user")
+}
+
+// --- PTY clear-context tests ---
+
+// TestChat_PtyClearContext_RemovesTerminalContext verifies that when isPty=true
+// and clearContext=true, the last system message (terminal context) is popped
+// before the PTY instruction is appended, ensuring stale terminal context does
+// not carry into a fresh conversation.
+func TestChat_PtyClearContext_RemovesTerminalContext(t *testing.T) {
+	reg, _, captured := loadWithCapture(t)
+	pid := 50
+
+	sysPrompt := chatMsg("system", "You are helpful")
+	termCtx := chatMsg("system", "Recent terminal output (for context):\n```\n$ ls\nfoo bar\n```")
+
+	// Turn 1: PTY session without clear — terminal context should be preserved.
+	err := reg.Chat(context.Background(),
+		[]protocol.ChatMessage{sysPrompt, termCtx, chatMsg("user", "what files do I have?")},
+		protocol.InferenceOpts{}, func(string) {}, pid, false, true)
+	if err != nil {
+		t.Fatalf("turn 1: %v", err)
+	}
+
+	turn1 := (*captured)[0]
+	// Expect: [system(prompt), system(termCtx), system(pty_instruction), user]
+	assertRoles(t, "turn 1 (no clear)", turn1, "system", "system", "system", "user")
+	if turn1[1].Content != termCtx.Content {
+		t.Errorf("turn 1: terminal context should be preserved, got %q", turn1[1].Content)
+	}
+	if !strings.Contains(turn1[2].Content, "jarvis commands") {
+		t.Errorf("turn 1: expected PTY instruction, got %q", turn1[2].Content)
+	}
+
+	// Turn 2: clearContext=true with isPty=true — terminal context should be removed.
+	newTermCtx := chatMsg("system", "Recent terminal output (for context):\n```\n$ pwd\n/home/user\n```")
+	err = reg.Chat(context.Background(),
+		[]protocol.ChatMessage{sysPrompt, newTermCtx, chatMsg("user", "start fresh")},
+		protocol.InferenceOpts{}, func(string) {}, pid, true, true)
+	if err != nil {
+		t.Fatalf("turn 2 (clear): %v", err)
+	}
+
+	turn2 := (*captured)[1]
+	// After pop: terminal context removed, PTY instruction appended.
+	// Expect: [system(prompt), system(pty_instruction), user]
+	assertRoles(t, "turn 2 (clear)", turn2, "system", "system", "user")
+
+	if turn2[0].Content != "You are helpful" {
+		t.Errorf("turn 2: first system should be prompt, got %q", turn2[0].Content)
+	}
+	if strings.Contains(turn2[1].Content, "terminal output") {
+		t.Errorf("turn 2: terminal context should have been removed, got %q", turn2[1].Content)
+	}
+	if !strings.Contains(turn2[1].Content, "jarvis commands") {
+		t.Errorf("turn 2: expected PTY instruction, got %q", turn2[1].Content)
+	}
+}
+
+// TestChat_PtyClearContext_SingleSystemMessage verifies the edge case where
+// the only system message is the terminal context (no system prompt).
+// Popping it should leave just the PTY instruction.
+func TestChat_PtyClearContext_SingleSystemMessage(t *testing.T) {
+	reg, _, captured := loadWithCapture(t)
+	pid := 51
+
+	termCtx := chatMsg("system", "Recent terminal output (for context):\n```\n$ echo hi\nhi\n```")
+
+	err := reg.Chat(context.Background(),
+		[]protocol.ChatMessage{termCtx, chatMsg("user", "clear please")},
+		protocol.InferenceOpts{}, func(string) {}, pid, true, true)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	msgs := (*captured)[0]
+	// After pop: terminal context removed, only PTY instruction remains.
+	// Expect: [system(pty_instruction), user]
+	assertRoles(t, "single sys clear", msgs, "system", "user")
+
+	if strings.Contains(msgs[0].Content, "terminal output") {
+		t.Errorf("terminal context should have been removed, got %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[0].Content, "jarvis commands") {
+		t.Errorf("expected PTY instruction, got %q", msgs[0].Content)
+	}
+}
+
+// TestChat_PtyWithoutClear_PreservesTerminalContext verifies that when
+// isPty=true but clearContext=false, the terminal context system message
+// is preserved in what reaches the backend.
+func TestChat_PtyWithoutClear_PreservesTerminalContext(t *testing.T) {
+	reg, _, captured := loadWithCapture(t)
+	pid := 52
+
+	sysPrompt := chatMsg("system", "You are helpful")
+	termCtx := chatMsg("system", "Recent terminal output (for context):\n```\n$ whoami\ndevon\n```")
+
+	err := reg.Chat(context.Background(),
+		[]protocol.ChatMessage{sysPrompt, termCtx, chatMsg("user", "who am I?")},
+		protocol.InferenceOpts{}, func(string) {}, pid, false, true)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	msgs := (*captured)[0]
+	// No clear — terminal context should be kept.
+	// Expect: [system(prompt), system(termCtx), system(pty_instruction), user]
+	assertRoles(t, "pty no clear", msgs, "system", "system", "system", "user")
+
+	if !strings.Contains(msgs[1].Content, "whoami") {
+		t.Errorf("terminal context should be preserved, got %q", msgs[1].Content)
+	}
+	if !strings.Contains(msgs[2].Content, "jarvis commands") {
+		t.Errorf("expected PTY instruction as third system msg, got %q", msgs[2].Content)
+	}
 }
 
 // TestChat_ConcurrentDifferentShells verifies that concurrent Chat calls on
@@ -825,7 +940,7 @@ func TestChat_ConcurrentDifferentShells(t *testing.T) {
 			reg.Chat(context.Background(),
 				[]protocol.ChatMessage{chatMsg("system", "sys"), chatMsg("user", fmt.Sprintf("q from %d", pid))},
 				protocol.InferenceOpts{}, func(string) {}, pid, false,
-			)
+				false)
 		}(i)
 	}
 	wg.Wait()

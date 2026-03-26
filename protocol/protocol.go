@@ -15,12 +15,13 @@ type Request struct {
 
 // ChatRequest holds the payload for a chat request.
 type ChatRequest struct {
-	Messages     []ChatMessage `json:"messages"`
-	WebSearch    bool          `json:"web_search"`
-	SystemPrompt string        `json:"system_prompt"`
-	Opts         InferenceOpts `json:"opts"`
-	ShellPID     int           `json:"shell_pid"`
-	ClearContext bool          `json:"clear_context"`
+	Messages        []ChatMessage `json:"messages"`
+	WebSearch       bool          `json:"web_search"`
+	SystemPrompt    string        `json:"system_prompt"`
+	Opts            InferenceOpts `json:"opts"`
+	ShellPID        int           `json:"shell_pid"`
+	ClearContext    bool          `json:"clear_context"`
+	TerminalContext string        `json:"terminal_context"`
 }
 
 // LoadRequest holds the payload for a model load request.

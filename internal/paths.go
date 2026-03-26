@@ -53,3 +53,19 @@ func LogDir() string {
 func LogPath() string {
 	return filepath.Join(LogDir(), LogFileName)
 }
+
+// PTYPIDPath returns the path to the PTY shell's PID file.
+func PTYPIDPath() string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "jarvis-pty.pid")
+	}
+	return fmt.Sprintf("/tmp/jarvis-pty-%d.pid", os.Getuid())
+}
+
+// PTYContextPath returns the path to the PTY context file.
+func PTYContextPath() string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "jarvis-pty.ctx")
+	}
+	return fmt.Sprintf("/tmp/jarvis-pty-%d.ctx", os.Getuid())
+}

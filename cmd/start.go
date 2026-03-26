@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/devon-caron/jarvis/daemon"
 	"github.com/devon-caron/jarvis/internal"
+	ptyShell "github.com/devon-caron/jarvis/pty"
 )
 
 var startCmd = &cobra.Command{
@@ -21,16 +23,28 @@ var startCmd = &cobra.Command{
 	RunE:  runStart,
 }
 
-var debugLogFlag bool
+var (
+	debugLogFlag   bool
+	backgroundFlag bool
+)
 
 func init() {
 	startCmd.Flags().BoolVarP(&debugLogFlag, "debug", "d", false, "enable debug logger output to stdout")
+	startCmd.Flags().BoolVarP(&backgroundFlag, "background", "b", false, "run daemon in background instead of pty process")
 	rootCmd.AddCommand(startCmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
+	if backgroundFlag {
+		return startDaemonProcess()
+	}
+
+	return runStartPTY()
+}
+
+func startDaemonProcess() error {
 	pidPath := internal.PIDPath()
 
 	// Check if already running
@@ -98,7 +112,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 						}
 						// No new data, wait a bit and try again
 						time.Sleep(1 * time.Second)
-						s = bufio.NewScanner(file) // Recreate scanner to reset state
+
+						// Recreate scanner to reset state
+						// file text position is stored in `file` variable and not scanner itself
+						s = bufio.NewScanner(file)
 					}
 				}
 			}
@@ -107,4 +124,37 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	return fmt.Errorf("daemon did not start within 5 seconds")
+}
+
+func runStartPTY() error {
+	pidPath := internal.PIDPath()
+
+	// Start daemon if not already running
+	if !daemon.IsRunning(pidPath) {
+		if err := startDaemonProcess(); err != nil {
+			return err
+		}
+	} else {
+		pid, _ := daemon.ReadPID(pidPath)
+		fmt.Printf("jarvis daemon already running (pid %d)\n", pid)
+	}
+
+	// Write PTY PID file
+	ptyPIDPath := internal.PTYPIDPath()
+	if err := os.WriteFile(ptyPIDPath, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+		return fmt.Errorf("failed to write PTY PID file: %w", err)
+	}
+	defer os.Remove(ptyPIDPath)
+
+	// Create and run the PTY session
+	contextPath := internal.PTYContextPath()
+	session := ptyShell.NewSession(contextPath)
+
+	fmt.Println("jarvis PTY shell started (type 'exit' to quit)")
+	err := session.Run()
+
+	// Clean up context file
+	os.Remove(contextPath)
+
+	return err
 }

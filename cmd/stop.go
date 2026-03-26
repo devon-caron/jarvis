@@ -2,10 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/devon-caron/jarvis/client"
+	"github.com/devon-caron/jarvis/internal"
 	"github.com/devon-caron/jarvis/protocol"
 )
 
@@ -32,5 +37,34 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("jarvis daemon stopped")
+
+	// Stop PTY shell
+	stopPTY()
+
 	return nil
+}
+
+// stopPTY sends SIGTERM to the PTY process if its PID file exists.
+func stopPTY() {
+	ptyPIDPath := internal.PTYPIDPath()
+	data, err := os.ReadFile(ptyPIDPath)
+	if err != nil {
+		return // no PTY running
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		os.Remove(ptyPIDPath)
+		return
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		os.Remove(ptyPIDPath)
+		return
+	}
+
+	proc.Signal(syscall.SIGTERM)
+	os.Remove(ptyPIDPath)
+	fmt.Println("jarvis PTY shell stopped")
 }
