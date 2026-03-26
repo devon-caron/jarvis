@@ -1,14 +1,23 @@
 package pty
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type Session struct {
-	contextPath string
+	ContextPath   string
+	RingSize      int
+	FlushInterval time.Duration
+
+	ring *RingBuffer
 }
 
 func NewSession(contextPath string) *Session {
 	return &Session{
-		contextPath: contextPath,
+		ContextPath:   contextPath,
+		RingSize:      DefaultRingSize,
+		FlushInterval: 1 * time.Second,
 	}
 }
 
